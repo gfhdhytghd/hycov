@@ -99,13 +99,13 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
         pNode->isGroupActive = true;
 	}
 
-    pNode->workspaceID = pWindow->m_workspace->m_iID; // encapsulate window objects as node objects to bind more properties
+    pNode->workspaceID = pWindow->m_workspace->m_id; // encapsulate window objects as node objects to bind more properties
     pNode->pWindow = pWindow;
     pNode->workspaceName = pWindowOriWorkspace->m_name;
     
     //record the window stats which are used by restore
     pNode->ovbk_windowMonitorId = pWindow->monitorID();
-    pNode->ovbk_windowWorkspaceId = pWindow->m_workspace->m_iID;
+    pNode->ovbk_windowWorkspaceId = pWindow->m_workspace->m_id;
     pNode->ovbk_windowFullscreenMode  = pWindowOriWorkspace->m_fullscreenMode;
     pNode->ovbk_position = pWindow->m_realPosition->goal();
     pNode->ovbk_size = pWindow->m_realSize->goal();
@@ -124,21 +124,21 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
 
 
     //change all client(exclude special workspace) to active worksapce 
-    if ((!g_pCompositor->isWorkspaceSpecial(pNode->workspaceID) || g_hycov_show_special) && pNode->isInOldLayout && (pWindowOriWorkspace->m_iID != pActiveWorkspace->m_iID || pWindowOriWorkspace->m_name != pActiveWorkspace->m_name) && (!(g_hycov_only_active_workspace || g_hycov_force_display_only_current_workspace) || g_hycov_forece_display_all || g_hycov_forece_display_all_in_one_monitor))    {
+    if ((!g_pCompositor->isWorkspaceSpecial(pNode->workspaceID) || g_hycov_show_special) && pNode->isInOldLayout && (pWindowOriWorkspace->m_id != pActiveWorkspace->m_id || pWindowOriWorkspace->m_name != pActiveWorkspace->m_name) && (!(g_hycov_only_active_workspace || g_hycov_force_display_only_current_workspace) || g_hycov_forece_display_all || g_hycov_forece_display_all_in_one_monitor))    {
         pWindow->m_workspace = pActiveWorkspace;
-        pNode->workspaceID = pWindow->m_workspace->m_iID;
+        pNode->workspaceID = pWindow->m_workspace->m_id;
         pNode->workspaceName = pActiveWorkspace->m_name;
         // Note: setMonitorID API may have changed in Hyprland v0.50
 // For now we'll use the monitor ID assignment directly
 // Note: Monitor assignment API may have changed
 // For now we'll skip monitor assignment to avoid compilation errors
 // TODO: Update to new monitor assignment API
-// pWindow->m_monitorID = pTargetMonitor->m_iID;
+// pWindow->m_monitorID = pTargetMonitor->m_id;
     }
 
     // clean fullscreen status
     if (pWindow->isFullscreen()) {   
-        g_pCompositor->setWindowFullscreenState(pWindow, false);
+        g_pCompositor->setWindowFullscreenState(pWindow, {.internal = FSMODE_NONE, .client = FSMODE_NONE});
     }
 
     //clean floating status(only apply to old layout window)
@@ -195,7 +195,7 @@ void OvGridLayout::onWindowRemoved(PHLWINDOW pWindow) {
     }
 
     if (pWindow->isFullscreen())
-        g_pCompositor->setWindowFullscreenState(pWindow, false);
+        g_pCompositor->setWindowFullscreenState(pWindow, {.internal = FSMODE_NONE, .client = FSMODE_NONE});
 
     if (!pWindow->m_groupData.pNextWindow.expired()) {
         if (pWindow->m_groupData.pNextWindow.lock() == pWindow)
@@ -208,17 +208,17 @@ void OvGridLayout::onWindowRemoved(PHLWINDOW pWindow) {
             if (WINDOWISVISIBLE)
                 PWINDOWPREV->setGroupCurrent(pWindow->m_groupData.head ? pWindow->m_groupData.pNextWindow.lock() : PWINDOWPREV);
 
-            PWINDOWPREV->m_sGroupData.pNextWindow = pWindow->m_groupData.pNextWindow;
+            PWINDOWPREV->m_groupData.pNextWindow = pWindow->m_groupData.pNextWindow;
 
             pWindow->m_groupData.pNextWindow.reset();
 
             if (pWindow->m_groupData.head) {
-                std::swap(PWINDOWPREV->m_sGroupData.pNextWindow.lock()->m_sGroupData.head, pWindow->m_groupData.head);
-                std::swap(PWINDOWPREV->m_sGroupData.pNextWindow.lock()->m_sGroupData.locked, pWindow->m_groupData.locked);
+                std::swap(PWINDOWPREV->m_groupData.pNextWindow.lock()->m_groupData.head, pWindow->m_groupData.head);
+                std::swap(PWINDOWPREV->m_groupData.pNextWindow.lock()->m_groupData.locked, pWindow->m_groupData.locked);
             }
 
-            if (pWindow == m_pLastTiledWindow.lock())
-                m_pLastTiledWindow.reset();
+            if (pWindow == m_lastTiledWindow.lock())
+                m_lastTiledWindow.reset();
 
             pWindow->setHidden(false);
 
@@ -243,8 +243,8 @@ void OvGridLayout::onWindowRemoved(PHLWINDOW pWindow) {
         onWindowRemovedTiling(pWindow);
     }
 
-    if (pWindow == m_pLastTiledWindow.lock())
-        m_pLastTiledWindow.reset();
+    if (pWindow == m_lastTiledWindow.lock())
+        m_lastTiledWindow.reset();
 }
 
 void OvGridLayout::onWindowRemovedTiling(PHLWINDOW pWindow)
@@ -299,8 +299,8 @@ void OvGridLayout::calculateWorkspace(const int &ws)
         return;
     }
 
-    NODECOUNT = getNodesNumOnWorkspace(pWorksapce->m_iID);          
-    const auto pMonitor = g_pCompositor->getMonitorFromID(pWorksapce->m_monitorID); 
+    NODECOUNT = getNodesNumOnWorkspace(pWorksapce->m_id);          
+    const auto pMonitor = pWorksapce->m_monitor.lock(); 
 
     if (NODECOUNT == 0) {
         delete[] pTempNodes;
@@ -315,14 +315,14 @@ void OvGridLayout::calculateWorkspace(const int &ws)
     m is region that is moniotr,
     w is region that is monitor but don not contain bar  
     */
-    int m_x = pMonitor->vecPosition.x;
-    int m_y = pMonitor->vecPosition.y;
-    int w_x = pMonitor->vecPosition.x + pMonitor->vecReservedTopLeft.x;
-    int w_y = pMonitor->vecPosition.y + pMonitor->vecReservedTopLeft.y;
-    int m_width = pMonitor->vecSize.x;
-    int m_height = pMonitor->vecSize.y;
-    int w_width = pMonitor->vecSize.x -  pMonitor->vecReservedTopLeft.x;
-    int w_height = pMonitor->vecSize.y - pMonitor->vecReservedTopLeft.y;
+    int m_x = pMonitor->m_position.x;
+    int m_y = pMonitor->m_position.y;
+    int w_x = pMonitor->m_position.x + pMonitor->m_reservedTopLeft.x;
+    int w_y = pMonitor->m_position.y + pMonitor->m_reservedTopLeft.y;
+    int m_width = pMonitor->m_size.x;
+    int m_height = pMonitor->m_size.y;
+    int w_width = pMonitor->m_size.x -  pMonitor->m_reservedTopLeft.x;
+    int w_height = pMonitor->m_size.y - pMonitor->m_reservedTopLeft.y;
 
     for (auto &node : m_lOvGridNodesData)
     {
@@ -418,11 +418,11 @@ void OvGridLayout::recalculateMonitor(const MONITORID& monid)
         return;
     }
 
-    const auto pWorksapce = g_pCompositor->getWorkspaceByID(pMonitor->m_activeWorkspaceID()); // 获取当前workspace对象
+    const auto pWorksapce = pMonitor->m_activeWorkspace; // 获取当前workspace对象
     if (!pWorksapce)
         return;
 
-    calculateWorkspace(pWorksapce->m_iID); // calculate windwo's size and position
+    calculateWorkspace(pWorksapce->m_id); // calculate windwo's size and position
 }
 
 // set window's size and position
@@ -435,9 +435,11 @@ void OvGridLayout::applyNodeDataToWindow(SOvGridNodeData *pNode)
     // pWindow->m_specialRenderData.decorate = false;
     // pWindow->m_specialRenderData.shadow   = false;
 
-    // force enable bordear and rounding
-    pWindow->m_specialRenderData.border   = true;
-    pWindow->m_specialRenderData.rounding = true;
+    // Note: Special render data API changed in Hyprland v0.50
+    // For now we'll skip render data setting to avoid compilation errors
+    // TODO: Update to new render data API
+    // pWindow->m_specialRenderData.border   = true;
+    // pWindow->m_specialRenderData.rounding = true;
 
     pWindow->m_size = pNode->size;
     pWindow->m_position = pNode->position;
@@ -522,7 +524,7 @@ void OvGridLayout::changeToActivceSourceWorkspace()
         pWorksapce = g_pCompositor->m_lastMonitor->m_activeWorkspace;
     }
     // pMonitor->changeWorkspace(pWorksapce);
-    hycov_log(LOG,"changeToWorkspace:{}",pWorksapce->m_iID);
+    hycov_log(LOG,"changeToWorkspace:{}",pWorksapce->m_id);
     // Note: Event manager and hook APIs may have changed in Hyprland v0.50
     // For now we'll skip these calls to avoid compilation errors
     // TODO: Update to new event system API
@@ -538,7 +540,7 @@ void OvGridLayout::moveWindowToSourceWorkspace()
 
     for (auto &nd : m_lOvGridNodesData)
     {
-        if (nd.pWindow && (nd.pWindow->m_workspace->m_iID != nd.ovbk_windowWorkspaceId || nd.workspaceName != nd.ovbk_windowWorkspaceName ))
+        if (nd.pWindow && (nd.pWindow->m_workspace->m_id != nd.ovbk_windowWorkspaceId || nd.workspaceName != nd.ovbk_windowWorkspaceName ))
         {
             pWorkspace = g_pCompositor->getWorkspaceByID(nd.ovbk_windowWorkspaceId);
             if (!pWorkspace){
@@ -578,7 +580,7 @@ void OvGridLayout::onEnable()
         if (pWindow->isHidden() || !pWindow->m_isMapped || pWindow->m_fadingOut)
             continue;
 
-        if(pWindow->monitorID() != g_pCompositor->m_lastMonitor->m_iID && g_hycov_only_active_monitor && !g_hycov_forece_display_all && !g_hycov_forece_display_all_in_one_monitor)
+        if(pWindow->monitorID() != g_pCompositor->m_lastMonitor->m_id && g_hycov_only_active_monitor && !g_hycov_forece_display_all && !g_hycov_forece_display_all_in_one_monitor)
             continue;
 
         const auto pNode = &m_lSOldLayoutRecordNodeData.emplace_back();

@@ -28,7 +28,7 @@ std::string getKeynameFromKeycode(IKeyboard::SKeyEvent e, SP<IKeyboard> pKeyboar
   // Note: Keyboard API changed in Hyprland v0.50
   // For now we'll use a workaround to avoid compilation errors
   // TODO: Update to new keyboard API
-  auto keyboard = pKeyboard->keyboard;
+  auto keyboard = pKeyboard->aq();
   xkb_keycode_t keycode = e.keycode + 8;
   xkb_keysym_t keysym = xkb_state_key_get_one_sym(keyboard->xkb_state, keycode);
   char *tmp_keyname = new char[64];
@@ -256,7 +256,12 @@ static void hkFullscreenActive(std::string args) {
     dispatch_toggleoverview("internalToggle");
     // Note: Fullscreen API changed in Hyprland v0.50
 // For now we'll use simplified fullscreen state setting
-g_pCompositor->setWindowFullscreenState(pWindow, !pWindow->isFullscreen());
+// Note: Need to handle fullscreen state toggle properly with SFullscreenState
+if (pWindow->isFullscreen()) {
+    g_pCompositor->setWindowFullscreenState(pWindow, {.internal = FSMODE_NONE, .client = FSMODE_NONE});
+} else {
+    g_pCompositor->setWindowFullscreenState(pWindow, {.internal = FSMODE_FULLSCREEN, .client = FSMODE_FULLSCREEN});
+}
   } else if (g_hycov_isOverView && (!want_auto_fullscren(pWindow) || g_hycov_auto_fullscreen)) {
     hycov_log(LOG,"FullscreenActive toggle leave overview without fullscreen");
     dispatch_toggleoverview("internalToggle");
@@ -264,7 +269,12 @@ g_pCompositor->setWindowFullscreenState(pWindow, !pWindow->isFullscreen());
     hycov_log(LOG,"FullscreenActive set fullscreen");
     // Note: Fullscreen API changed in Hyprland v0.50
 // For now we'll use simplified fullscreen state setting
-g_pCompositor->setWindowFullscreenState(pWindow, !pWindow->isFullscreen());
+// Note: Need to handle fullscreen state toggle properly with SFullscreenState
+if (pWindow->isFullscreen()) {
+    g_pCompositor->setWindowFullscreenState(pWindow, {.internal = FSMODE_NONE, .client = FSMODE_NONE});
+} else {
+    g_pCompositor->setWindowFullscreenState(pWindow, {.internal = FSMODE_FULLSCREEN, .client = FSMODE_FULLSCREEN});
+}
   }
 }
 

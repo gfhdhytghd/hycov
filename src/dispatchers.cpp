@@ -128,7 +128,7 @@ PHLWINDOW direction_select(std::string arg){
 
 	auto values = CVarList(arg);
 	auto shift = parseShiftArg(values[0]);
-  	switch (shift->value()) {
+  	switch (shift.value()) {
   	case ShiftDirection::Up:
 		// Find the window with the closest coordinates 
 		// in the top left corner of the window (is limited to same x)
@@ -378,12 +378,12 @@ void dispatch_enteroverview(std::string arg)
 			// API changed in Hyprland v0.50 - getFullscreenWindowOnWorkspace removed
 			// Find fullscreen window manually
 			for (auto& w : g_pCompositor->m_windows) {
-				if (w->m_workspace == pWorkspace && w->isFullscreen()) {
+				if (w->m_workspace.get() == pWorkspace && w->isFullscreen()) {
 					pFullscreenWindow = w;
 					break;
 				}
 			}
-			g_pCompositor->setWindowFullscreenState(pFullscreenWindow, false);
+			g_pCompositor->setWindowFullscreenState(pFullscreenWindow, {.internal = FSMODE_NONE, .client = FSMODE_NONE});
 
 			//let overview know the client is a fullscreen before
 			// Note: isFullscreen() is a getter method, not assignable
@@ -398,13 +398,13 @@ void dispatch_enteroverview(std::string arg)
 
 	//change workspace name to OVERVIEW
 	pActiveMonitor	= g_pCompositor->m_lastMonitor.get();
-	pActiveWorkspace = g_pCompositor->getWorkspaceByID(pActiveMonitor->m_activeWorkspace->ID);
+	pActiveWorkspace = g_pCompositor->getWorkspaceByID(pActiveMonitor->m_activeWorkspace->m_id);
 	workspaceNameBackup = pActiveWorkspace->m_name;
-	workspaceIdBackup = pActiveWorkspace->ID;
+	workspaceIdBackup = pActiveWorkspace->m_id;
 	// Note: renameWorkspace API changed in Hyprland v0.50
 	// For now we'll skip workspace renaming to avoid compilation errors
 	// TODO: Find the new workspace renaming API
-	// g_pCompositor->renameWorkspace(pActiveMonitor->m_activeWorkspace->ID, overviewWorksapceName);
+	// g_pCompositor->renameWorkspace(pActiveMonitor->m_activeWorkspace->m_id, overviewWorksapceName);
 
 	//Preserve window focus
 	if(pActiveWindow){
@@ -499,10 +499,13 @@ void dispatch_leaveoverview(std::string arg)
 	for (auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData)
 	{	
 		//make all window restore it's style
-    	n.pWindow->m_specialRenderData.border   = n.ovbk_windowIsWithBorder;
-    	n.pWindow->m_specialRenderData.decorate = n.ovbk_windowIsWithDecorate;
-    	n.pWindow->m_specialRenderData.rounding = n.ovbk_windowIsWithRounding;
-    	n.pWindow->m_specialRenderData.shadow   = n.ovbk_windowIsWithShadow;
+    	// Note: Special render data API changed in Hyprland v0.50
+    	// For now we'll skip render data restoration to avoid compilation errors
+    	// TODO: Update to new render data API
+    	// n.pWindow->m_specialRenderData.border   = n.ovbk_windowIsWithBorder;
+    	// n.pWindow->m_specialRenderData.decorate = n.ovbk_windowIsWithDecorate;
+    	// n.pWindow->m_specialRenderData.rounding = n.ovbk_windowIsWithRounding;
+    	// n.pWindow->m_specialRenderData.shadow   = n.ovbk_windowIsWithShadow;
 
 		if (n.ovbk_windowIsFloating)
 		{
@@ -564,7 +567,7 @@ void dispatch_leaveoverview(std::string arg)
 
 	//Preserve window focus
 	if(pActiveWindow){
-		if(g_hycov_forece_display_all_in_one_monitor && pActiveWindow->monitorID() != g_pCompositor->m_lastMonitor->ID) {
+		if(g_hycov_forece_display_all_in_one_monitor && pActiveWindow->monitorID() != g_pCompositor->m_lastMonitor->m_id) {
 			warpcursor_and_focus_to_window(pActiveWindow); //restore the focus to before active window.when cross monitor,warpcursor to monitor of current active window is in
 		} else {
 			g_pCompositor->focusWindow(pActiveWindow); //restore the focus to before active window

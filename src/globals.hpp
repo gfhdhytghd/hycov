@@ -13,6 +13,7 @@
 #include <hyprland/src/layout/DwindleLayout.hpp>
 #include <hyprland/src/layout/MasterLayout.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
+#include <hyprland/src/managers/LayoutManager.hpp>
 #include <hyprutils/string/String.hpp>
 #undef private
 
