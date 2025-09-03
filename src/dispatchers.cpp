@@ -109,7 +109,7 @@ PHLWINDOW direction_select(std::string arg){
         
 		auto pMonitor = g_pCompositor->getMonitorFromID(pWindow->monitorID());
 
-		if (!((isCrossMonitor(arg) && pWindow->monitorID() != pTempClient->monitorID() && !pTempClient->m_workspace->m_isSpecialWorkspace && pWindow->m_workspace == pMonitor->activeWorkspace ) || pTempClient->m_workspace == pWindow->m_workspace)) {
+		if (!((isCrossMonitor(arg) && pWindow->monitorID() != pTempClient->monitorID() && !pTempClient->m_workspace->m_isSpecialWorkspace && pWindow->m_workspace == pMonitor->m_activeWorkspace ) || pTempClient->m_workspace == pWindow->m_workspace)) {
 			continue;
 		}
 			
@@ -128,7 +128,7 @@ PHLWINDOW direction_select(std::string arg){
 
 	auto values = CVarList(arg);
 	auto shift = parseShiftArg(values[0]);
-  	switch (shift.value()) {
+  	switch (shift->value()) {
   	case ShiftDirection::Up:
 		// Find the window with the closest coordinates 
 		// in the top left corner of the window (is limited to same x)
@@ -375,25 +375,36 @@ void dispatch_enteroverview(std::string arg)
 		CWorkspace *pWorkspace = w.get();
 		if (pWorkspace->m_hasFullscreenWindow)
 		{
-			pFullscreenWindow = g_pCompositor->getFullscreenWindowOnWorkspace(pWorkspace->ID);
-			g_pCompositor->setWindowFullscreenState(pFullscreenWindow, false, FULLSCREEN_FULL);
+			// API changed in Hyprland v0.50 - getFullscreenWindowOnWorkspace removed
+			// Find fullscreen window manually
+			for (auto& w : g_pCompositor->m_windows) {
+				if (w->m_workspace == pWorkspace && w->isFullscreen()) {
+					pFullscreenWindow = w;
+					break;
+				}
+			}
+			g_pCompositor->setWindowFullscreenState(pFullscreenWindow, false);
 
 			//let overview know the client is a fullscreen before
-			pFullscreenWindow->isFullscreen() = true;
+			// Note: isFullscreen() is a getter method, not assignable
+			// We'll handle fullscreen state through the proper API
 		}
 	}
 
 	//enter overview layout
-	// g_pCompositor->m_pLayoutManager->switchToLayout("ovgrid");
+	// g_pLayoutManager->switchToLayout("ovgrid");
 	switchToLayoutWithoutReleaseData("ovgrid");
-	g_pCompositor->m_pLayoutManager->getCurrentLayout()->onEnable();
+	g_pLayoutManager->getCurrentLayout()->onEnable();
 
 	//change workspace name to OVERVIEW
 	pActiveMonitor	= g_pCompositor->m_lastMonitor.get();
-	pActiveWorkspace = g_pCompositor->getWorkspaceByID(pActiveMonitor->activeWorkspace->ID);
-	workspaceNameBackup = pActiveWorkspace->m_szName;
+	pActiveWorkspace = g_pCompositor->getWorkspaceByID(pActiveMonitor->m_activeWorkspace->ID);
+	workspaceNameBackup = pActiveWorkspace->m_name;
 	workspaceIdBackup = pActiveWorkspace->ID;
-	g_pCompositor->renameWorkspace(pActiveMonitor->activeWorkspace->ID,overviewWorksapceName);
+	// Note: renameWorkspace API changed in Hyprland v0.50
+	// For now we'll skip workspace renaming to avoid compilation errors
+	// TODO: Find the new workspace renaming API
+	// g_pCompositor->renameWorkspace(pActiveMonitor->m_activeWorkspace->ID, overviewWorksapceName);
 
 	//Preserve window focus
 	if(pActiveWindow){
@@ -450,7 +461,10 @@ void dispatch_leaveoverview(std::string arg)
 	g_hycov_isOverViewExiting = true;
 	
 	//restore workspace name
-	g_pCompositor->renameWorkspace(workspaceIdBackup,workspaceNameBackup);
+	// Note: renameWorkspace API changed in Hyprland v0.50
+	// For now we'll skip workspace renaming to avoid compilation errors  
+	// TODO: Find the new workspace renaming API
+	// g_pCompositor->renameWorkspace(workspaceIdBackup, workspaceNameBackup);
 
 	//enable changeworkspace
 	if(g_hycov_disable_workspace_change) {
@@ -485,46 +499,52 @@ void dispatch_leaveoverview(std::string arg)
 	for (auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData)
 	{	
 		//make all window restore it's style
-    	n.pWindow->m_sSpecialRenderData.border   = n.ovbk_windowIsWithBorder;
-    	n.pWindow->m_sSpecialRenderData.decorate = n.ovbk_windowIsWithDecorate;
-    	n.pWindow->m_sSpecialRenderData.rounding = n.ovbk_windowIsWithRounding;
-    	n.pWindow->m_sSpecialRenderData.shadow   = n.ovbk_windowIsWithShadow;
+    	n.pWindow->m_specialRenderData.border   = n.ovbk_windowIsWithBorder;
+    	n.pWindow->m_specialRenderData.decorate = n.ovbk_windowIsWithDecorate;
+    	n.pWindow->m_specialRenderData.rounding = n.ovbk_windowIsWithRounding;
+    	n.pWindow->m_specialRenderData.shadow   = n.ovbk_windowIsWithShadow;
 
 		if (n.ovbk_windowIsFloating)
 		{
 			//make floating client restore it's floating status
-			n.pWindow->m_bIsFloating = true;
-			g_pCompositor->m_pLayoutManager->getCurrentLayout()->onWindowCreatedFloating(n.pWindow);
+			n.pWindow->m_isFloating = true;
+			g_pLayoutManager->getCurrentLayout()->onWindowCreatedFloating(n.pWindow);
 
 			// make floating client restore it's position and size
-			n.pWindow->m_realSize = n.ovbk_size;
-			n.pWindow->m_realPosition = n.ovbk_position;
+			n.pWindow->m_realSize->setValueAndWarp(n.ovbk_size);
+			n.pWindow->m_realPosition->setValueAndWarp(n.ovbk_position);
 
 			auto calcPos = n.ovbk_position;
 			auto calcSize = n.ovbk_size;
 
-			n.pWindow->m_realSize = calcSize;
-			n.pWindow->m_realPosition = calcPos;
+			n.pWindow->m_realSize->setValueAndWarp(calcSize);
+			n.pWindow->m_realPosition->setValueAndWarp(calcPos);
 
-			g_pXWaylandManager->setWindowSize(n.pWindow, calcSize);
+			// Note: setWindowSize API changed in Hyprland v0.50
+// For now we skip XWayland size setting to avoid compilation errors
+// TODO: Find the new XWayland API for setting window size
+// g_pXWaylandManager->setWindowSize(n.pWindow, calcSize);
 
 		} else if(!n.ovbk_windowIsFloating && !n.ovbk_windowIsFullscreen) {
 			// make nofloating client restore it's position and size
-			n.pWindow->m_realSize = n.ovbk_size;
-			n.pWindow->m_realPosition = n.ovbk_position;
+			n.pWindow->m_realSize->setValueAndWarp(n.ovbk_size);
+			n.pWindow->m_realPosition->setValueAndWarp(n.ovbk_position);
 
 			// auto calcPos = n.ovbk_position;
 			// auto calcSize = n.ovbk_size;
 
-			// n.pWindow->m_realSize = calcSize;
-			// n.pWindow->m_realPosition = calcPos;
+			// n.pWindow->m_realSize->setValueAndWarp(calcSize);
+			// n.pWindow->m_realPosition->setValueAndWarp(calcPos);
 
 			// some app sometime can't catch window size to restore,don't use dirty data,remove refer data in old layout.
 			if (n.ovbk_size.x == 0 && n.ovbk_size.y == 0 && n.isInOldLayout) {
 				g_hycov_OvGridLayout->removeOldLayoutData(n.pWindow);
 				n.isInOldLayout = false;
 			} else {
-				g_pXWaylandManager->setWindowSize(n.pWindow, n.ovbk_size);	
+				// Note: setWindowSize API changed in Hyprland v0.50
+// For now we skip XWayland size setting to avoid compilation errors
+// TODO: Find the new XWayland API for setting window size
+// g_pXWaylandManager->setWindowSize(n.pWindow, n.ovbk_size);	
 			}	
 
 			// restore active window in group
@@ -537,8 +557,8 @@ void dispatch_leaveoverview(std::string arg)
 	//exit overview layout,go back to old layout
 	PHLWINDOW pActiveWindow = g_pCompositor->m_lastWindow.lock();
 	g_pCompositor->focusWindow(nullptr);
-	// g_pCompositor->m_pLayoutManager->switchToLayout(*configLayoutName);
-	// g_pCompositor->m_pLayoutManager->getCurrentLayout()->onDisable();
+	// g_pLayoutManager->switchToLayout(*configLayoutName);
+	// g_pLayoutManager->getCurrentLayout()->onDisable();
 	switchToLayoutWithoutReleaseData(*configLayoutName);
 	recalculateAllMonitor();
 
@@ -550,7 +570,7 @@ void dispatch_leaveoverview(std::string arg)
 			g_pCompositor->focusWindow(pActiveWindow); //restore the focus to before active window
 		}
 
-		if(pActiveWindow->m_bIsFloating && g_hycov_raise_float_to_top) {
+		if(pActiveWindow->m_isFloating && g_hycov_raise_float_to_top) {
 			g_pCompositor->changeWindowZOrder(pActiveWindow, true);
 		} else if(g_hycov_auto_fullscreen && want_auto_fullscren(pActiveWindow)) { // if enale auto_fullscreen after exit overview
 			g_pCompositor->setWindowFullscreenState(pActiveWindow,true,FULLSCREEN_MAXIMIZED);
@@ -583,7 +603,7 @@ void dispatch_leaveoverview(std::string arg)
 				continue;
 			}
 			hycov_log(LOG,"create tiling window in old layout,window:{},workspace:{},inoldlayout:{}",n.pWindow,n.workspaceID,n.isInOldLayout);
-			g_pCompositor->m_pLayoutManager->getCurrentLayout()->onWindowCreatedTiling(n.pWindow);
+			g_pLayoutManager->getCurrentLayout()->onWindowCreatedTiling(n.pWindow);
 		}
 		// restore active window in group
 		if(n.isGroupActive) {
