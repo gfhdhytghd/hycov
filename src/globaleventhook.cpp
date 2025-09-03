@@ -106,7 +106,7 @@ static void hkOnSwipeEnd(void* thisptr, wlr_pointer_swipe_end_event* e) {
 
 static void toggle_hotarea(int x_root, int y_root)
 {
-  CMonitor *pMonitor = g_pCompositor->m_pLastMonitor.get();
+  CMonitor *pMonitor = g_pCompositor->m_lastMonitor.get();
 
   if (g_hycov_hotarea_monitor != "all" && pMonitor->szName != g_hycov_hotarea_monitor)
     return;
@@ -189,10 +189,10 @@ static void hkCWindow_onUnmap(void* thisptr) {
   auto nodeNumInSameMonitor = 0;
   auto nodeNumInSameWorkspace = 0;
 	for (auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData) {
-		if(n.pWindow->m_iMonitorID == g_pCompositor->m_pLastMonitor->ID && !g_pCompositor->isWorkspaceSpecial(n.workspaceID)) {
+		if(n.pWindow->monitorID() == g_pCompositor->m_lastMonitor->ID && !g_pCompositor->isWorkspaceSpecial(n.workspaceID)) {
 			nodeNumInSameMonitor++;
 		}
-		if(n.pWindow->m_pWorkspace == g_pCompositor->m_pLastMonitor->activeWorkspace) {
+		if(n.pWindow->m_workspace == g_pCompositor->m_lastMonitor->activeWorkspace) {
 			nodeNumInSameWorkspace++;
 		}
 	}
@@ -262,19 +262,19 @@ static void hkFullscreenActive(std::string args) {
   if (!pWindow)
         return;
 
-  if (pWindow->m_pWorkspace->m_bIsSpecialWorkspace)
+  if (pWindow->m_workspace->m_bIsSpecialWorkspace)
         return;
 
   if (g_hycov_isOverView && want_auto_fullscren(pWindow) && !g_hycov_auto_fullscreen) {
     hycov_log(LOG,"FullscreenActive toggle leave overview with fullscreen");
     dispatch_toggleoverview("internalToggle");
-    g_pCompositor->setWindowFullscreen(pWindow, !pWindow->m_bIsFullscreen, args == "1" ? FULLSCREEN_MAXIMIZED : FULLSCREEN_FULL);
+    g_pCompositor->setWindowFullscreen(pWindow, !pWindow->isFullscreen(), args == "1" ? FULLSCREEN_MAXIMIZED : FULLSCREEN_FULL);
   } else if (g_hycov_isOverView && (!want_auto_fullscren(pWindow) || g_hycov_auto_fullscreen)) {
     hycov_log(LOG,"FullscreenActive toggle leave overview without fullscreen");
     dispatch_toggleoverview("internalToggle");
   } else {
     hycov_log(LOG,"FullscreenActive set fullscreen");
-    g_pCompositor->setWindowFullscreen(pWindow, !pWindow->m_bIsFullscreen, args == "1" ? FULLSCREEN_MAXIMIZED : FULLSCREEN_FULL);
+    g_pCompositor->setWindowFullscreen(pWindow, !pWindow->isFullscreen(), args == "1" ? FULLSCREEN_MAXIMIZED : FULLSCREEN_FULL);
   }
 }
 
@@ -308,10 +308,10 @@ void hkCKeybindManager_changeGroupActive(std::string args) {
     if (!PWINDOW)
         return;
 
-    if (!PWINDOW->m_sGroupData.pNextWindow.lock())
+    if (!PWINDOW->m_groupData.pNextWindow.lock())
         return;
 
-    if (PWINDOW->m_sGroupData.pNextWindow.lock() == PWINDOW)
+    if (PWINDOW->m_groupData.pNextWindow.lock() == PWINDOW)
         return;
 
     auto pNode =  g_hycov_OvGridLayout->getNodeFromWindow(PWINDOW);
@@ -319,7 +319,7 @@ void hkCKeybindManager_changeGroupActive(std::string args) {
       return;
 
     if (args != "b" && args != "prev") {
-        pTargetWindow = PWINDOW->m_sGroupData.pNextWindow.lock();
+        pTargetWindow = PWINDOW->m_groupData.pNextWindow.lock();
     } else {
         pTargetWindow = PWINDOW->getGroupPrevious();
     }  
@@ -332,7 +332,7 @@ void hkCKeybindManager_changeGroupActive(std::string args) {
     }
 
     pNode->pWindow = pTargetWindow;
-    pNode->pWindow->m_pWorkspace = g_pCompositor->getWorkspaceByID(pNode->workspaceID);
+    pNode->pWindow->m_workspace = g_pCompositor->getWorkspaceByID(pNode->workspaceID);
     
     PWINDOW->setGroupCurrent(pTargetWindow);
     g_hycov_OvGridLayout->applyNodeDataToWindow(pNode);

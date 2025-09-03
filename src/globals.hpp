@@ -10,6 +10,9 @@
 #include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/devices/Keyboard.hpp>
 #include <hyprland/src/devices/IPointer.hpp>
+#include <hyprland/src/layout/DwindleLayout.hpp>
+#include <hyprland/src/layout/MasterLayout.hpp>
+#include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprutils/string/String.hpp>
 #undef private
 
