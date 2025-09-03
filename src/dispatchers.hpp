@@ -16,11 +16,11 @@ void warpcursor_and_focus_to_window(PHLWINDOW pWindow);
 void switchToLayoutWithoutReleaseData(std::string layout);
 void recalculateAllMonitor();
 
-SDispatchResult dispatch_circle(std::string arg);
-SDispatchResult dispatch_focusdir(std::string arg);
+void dispatch_circle(std::string arg);
+void dispatch_focusdir(std::string arg);
 
-SDispatchResult dispatch_toggleoverview(std::string arg);
-SDispatchResult dispatch_enteroverview(std::string arg);
-SDispatchResult dispatch_leaveoverview(std::string arg);
+void dispatch_toggleoverview(std::string arg);
+void dispatch_enteroverview(std::string arg);
+void dispatch_leaveoverview(std::string arg);
 
 void registerDispatchers();
