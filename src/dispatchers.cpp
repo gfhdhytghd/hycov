@@ -576,7 +576,7 @@ void dispatch_leaveoverview(std::string arg)
 		if(pActiveWindow->m_isFloating && g_hycov_raise_float_to_top) {
 			g_pCompositor->changeWindowZOrder(pActiveWindow, true);
 		} else if(g_hycov_auto_fullscreen && want_auto_fullscren(pActiveWindow)) { // if enale auto_fullscreen after exit overview
-			g_pCompositor->setWindowFullscreenState(pActiveWindow,true,FULLSCREEN_MAXIMIZED);
+			g_pCompositor->setWindowFullscreenState(pActiveWindow, {.internal = FSMODE_MAXIMIZED, .client = FSMODE_MAXIMIZED});
 		}
 	}
 
@@ -593,7 +593,7 @@ void dispatch_leaveoverview(std::string arg)
 			{
 				continue;
 			}	
-			g_pCompositor->setWindowFullscreenState(n.pWindow, true, n.ovbk_windowFullscreenMode );
+			g_pCompositor->setWindowFullscreenState(n.pWindow, {.internal = n.ovbk_windowFullscreenMode, .client = n.ovbk_windowFullscreenMode});
 		}
 	}
 

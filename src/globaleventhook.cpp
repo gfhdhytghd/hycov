@@ -25,12 +25,10 @@ static double gesture_dx,gesture_previous_dx;
 static double gesture_dy,gesture_previous_dy;
 
 std::string getKeynameFromKeycode(IKeyboard::SKeyEvent e, SP<IKeyboard> pKeyboard) {
-  // Note: Keyboard API changed in Hyprland v0.50
-  // For now we'll use a workaround to avoid compilation errors
-  // TODO: Update to new keyboard API
-  auto keyboard = pKeyboard->aq();
+  // Note: Keyboard API changed in Hyprland v0.50 - using m_xkbState directly
+  auto xkb_state = pKeyboard->m_xkbState;
   xkb_keycode_t keycode = e.keycode + 8;
-  xkb_keysym_t keysym = xkb_state_key_get_one_sym(keyboard->xkb_state, keycode);
+  xkb_keysym_t keysym = xkb_state_key_get_one_sym(xkb_state, keycode);
   char *tmp_keyname = new char[64];
   xkb_keysym_get_name(keysym, tmp_keyname, 64);
   std::string keyname = tmp_keyname;
@@ -94,13 +92,13 @@ static void toggle_hotarea(int x_root, int y_root)
 {
   CMonitor *pMonitor = g_pCompositor->m_lastMonitor.get();
 
-  if (g_hycov_hotarea_monitor != "all" && pMonitor->szName != g_hycov_hotarea_monitor)
+  if (g_hycov_hotarea_monitor != "all" && pMonitor->m_name != g_hycov_hotarea_monitor)
     return;
 
-  auto m_x = pMonitor->vecPosition.x;
-  auto m_y = pMonitor->vecPosition.y;
-  auto m_width = pMonitor->vecSize.x;
-  auto m_height = pMonitor->vecSize.y;
+  auto m_x = pMonitor->m_position.x;
+  auto m_y = pMonitor->m_position.y;
+  auto m_width = pMonitor->m_size.x;
+  auto m_height = pMonitor->m_size.y;
 
   if (!g_hycov_isInHotArea &&
     ((g_hycov_hotarea_pos == 1 && x_root < (m_x + g_hycov_hotarea_size) && y_root > (m_y + m_height - g_hycov_hotarea_size)) ||
@@ -140,7 +138,7 @@ static void hkCInputManager_onMouseButton(void* thisptr, IPointer::SButtonEvent 
         g_pInputManager->refocus();
     }
 
-    if (!g_pCompositor->m_pLastWindow.lock()) {
+    if (!g_pCompositor->m_lastWindow.lock()) {
       return;
     }
 
@@ -156,7 +154,7 @@ static void hkCInputManager_onMouseButton(void* thisptr, IPointer::SButtonEvent 
     case BTN_RIGHT:
       if (g_hycov_isOverView && e.state == WL_POINTER_BUTTON_STATE_PRESSED)
       {
-        g_pCompositor->closeWindow(g_pCompositor->m_pLastWindow.lock());
+        g_pCompositor->closeWindow(g_pCompositor->m_lastWindow.lock());
         return;
       }
       break;
@@ -175,10 +173,10 @@ static void hkCWindow_onUnmap(void* thisptr) {
   auto nodeNumInSameMonitor = 0;
   auto nodeNumInSameWorkspace = 0;
 	for (auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData) {
-		if(n.pWindow->monitorID() == g_pCompositor->m_lastMonitor->ID && !g_pCompositor->isWorkspaceSpecial(n.workspaceID)) {
+		if(n.pWindow->monitorID() == g_pCompositor->m_lastMonitor->m_id && !g_pCompositor->isWorkspaceSpecial(n.workspaceID)) {
 			nodeNumInSameMonitor++;
 		}
-		if(n.pWindow->m_workspace == g_pCompositor->m_lastMonitor->activeWorkspace) {
+		if(n.pWindow->m_workspace == g_pCompositor->m_lastMonitor->m_activeWorkspace) {
 			nodeNumInSameWorkspace++;
 		}
 	}
@@ -243,7 +241,7 @@ static void hkFullscreenActive(std::string args) {
   hycov_log(LOG,"FullscreenActive hook toggle");
 
   // (*(origFullscreenActive)g_hycov_pFullscreenActiveHook->m_original)(args);
-  const auto pWindow = g_pCompositor->m_pLastWindow.lock();
+  const auto pWindow = g_pCompositor->m_lastWindow.lock();
 
   if (!pWindow)
         return;
@@ -303,7 +301,7 @@ void hkCKeybindManager_moveOutOfGroup(std::string args) {
 }
 
 void hkCKeybindManager_changeGroupActive(std::string args) {
-    const auto PWINDOW = g_pCompositor->m_pLastWindow.lock();
+    const auto PWINDOW = g_pCompositor->m_lastWindow.lock();
     PHLWINDOW pTargetWindow;
     if (!PWINDOW)
         return;
