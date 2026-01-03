@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.19)
 project(Hycov VERSION "0.2")
 set(CMAKE_CXX_STANDARD 23)
 add_compile_definitions(WLR_USE_UNSTABLE)
-add_compile_options(-g -Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith)
+add_compile_options(-g -Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith --no-gnu-unique -Wno-template-body -fpermissive)
 
 # nix workaround
 if(CMAKE_EXPORT_COMPILE_COMMANDS)

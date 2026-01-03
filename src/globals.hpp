@@ -1,19 +1,36 @@
 #pragma once
 
-#include "log.hpp"
 #include <hyprland/src/includes.hpp>
 #include <any>
+
+// Include std headers that have issues with the private->public hack BEFORE the define
+// GCC 15 has strict template body checking that fails with sstream when private is redefined
+#include <sstream>
+#include <chrono>
+#include <string>
+#include <vector>
+#include <memory>
+#include <ranges>
 
 #define private public
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
+#include <hyprland/src/managers/LayoutManager.hpp>
+#include <hyprland/src/managers/EventManager.hpp>
+#include <hyprland/src/managers/HookSystemManager.hpp>
+#include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/devices/Keyboard.hpp>
 #include <hyprland/src/devices/IPointer.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprutils/string/String.hpp>
 #undef private
 
+#include "log.hpp"
 #include "OvGridLayout.hpp"
+
+using namespace Desktop::View;
 
 
 inline HANDLE PHANDLE = nullptr;
@@ -77,12 +94,11 @@ inline CFunctionHook* g_hycov_pCInputManager_mouseMoveUnifiedHook = nullptr;
 
 inline void errorNotif()
 {
-	HyprlandAPI::addNotificationV2(
-		PHANDLE,
-		{
-			{"text", "Something has gone very wrong. Check the log for details."},
-			{"time", (uint64_t)10000},
-			{"color", CColor(1.0, 0.0, 0.0, 1.0)},
-			{"icon", ICON_ERROR},
-		});
+	std::unordered_map<std::string, std::any> data = {
+		{"text", std::string("Something has gone very wrong. Check the log for details.")},
+		{"time", (uint64_t)10000},
+		{"color", CHyprColor(1.0, 0.0, 0.0, 1.0)},
+		{"icon", ICON_ERROR},
+	};
+	HyprlandAPI::addNotificationV2(PHANDLE, data);
 }

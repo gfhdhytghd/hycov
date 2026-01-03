@@ -39,7 +39,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 #undef CONF
 
 	HyprlandAPI::reloadConfig();
-	g_pConfigManager->tick();
 
 	// int value
 	static const auto *pEnable_hotarea_config = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:enable_hotarea")->getDataStaticPtr());
@@ -97,7 +96,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 	g_hycov_enable_click_action = **pEnable_click_action_config;
 	g_hycov_raise_float_to_top = **pRaise_float_to_top;
 
-
 	// string value
 	g_hycov_alt_replace_key = *pAlt_replace_key;
 	g_hycov_hotarea_monitor = *pHotarea_monitor_config;
@@ -109,8 +107,15 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 	g_hycov_OvGridLayout = std::make_unique<OvGridLayout>();
 	HyprlandAPI::addLayout(PHANDLE, "ovgrid", g_hycov_OvGridLayout.get());
 
-	registerGlobalEventHook();
+	// Register dispatchers FIRST so they're available even if hooks fail
 	registerDispatchers();
+	
+	// Then register event hooks (may fail on some functions)
+	try {
+		registerGlobalEventHook();
+	} catch (const std::exception& e) {
+		HyprlandAPI::addNotification(PHANDLE, std::string("[hycov] Warning: Some hooks failed to register: ") + e.what(), CHyprColor{1.0, 0.5, 0.0, 1.0}, 5000);
+	}
 
  	HyprlandAPI::reloadConfig();
 	return {"hycov", "overview mode", "DreamMaoMao", "0.3"};

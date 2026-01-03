@@ -1,8 +1,30 @@
-# hycov
+# hycov (Maintained Fork)
+
 A Hyprland overview mode plugin, a new tiling WM workflow.  
 
 > [!NOTE]
-> This repository only maintains the hyprland version corresponding to each hycov release, please do not bring up the issue of non-release versions, because I do not have enough time to track every commit.
+> **This is an actively maintained fork** of the original [hycov by DreamMaoMao](https://github.com/DreamMaoMao/hycov), which was archived in July 2024.
+> 
+> All credit for the original plugin goes to **DreamMaoMao** - this fork simply updates it to work with newer Hyprland versions.
+
+> [!WARNING]
+> **Use at your own risk!** Not all original features have been tested with the updated code. 
+> The core functionality (overview toggle, click to select, right-click to close) works, but some config options and advanced features may be broken or behave unexpectedly.
+> Please report issues if you find something that doesn't work.
+
+### Fork Status
+
+| Feature | Status |
+|---------|--------|
+| Hyprland v0.53.0+ | Working |
+| Overview toggle | Working |
+| Click to select window | Working |
+| Right-click to close | Working |
+| Hotarea (corner trigger) | Disabled (causes input issues) |
+| Gesture support | Untested |
+| Alt-release exit | Untested |
+| Auto-exit on window close | Untested |
+| Multi-monitor | Untested |
 
 ### What can it do?
 - Hycov can tile all of your windows in a single workspace via grid layout.
