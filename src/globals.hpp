@@ -92,6 +92,16 @@ inline CFunctionHook* g_hycov_pCKeybindManager_toggleGroupHook = nullptr;
 inline CFunctionHook* g_hycov_pCKeybindManager_moveOutOfGroupHook = nullptr;
 inline CFunctionHook* g_hycov_pCInputManager_mouseMoveUnifiedHook = nullptr;
 
+// Drag-to-monitor state
+inline bool g_hycov_isDragging = false;
+inline PHLWINDOW g_hycov_draggedWindow = nullptr;
+inline Vector2D g_hycov_dragStartPos = {0, 0};
+inline MONITORID g_hycov_dragStartMonitor = -1;
+
+// Pending move after overview exit
+inline PHLWINDOW g_hycov_pendingMoveWindow = nullptr;
+inline PHLMONITOR g_hycov_pendingMoveMonitor = nullptr;
+
 inline void errorNotif()
 {
 	std::unordered_map<std::string, std::any> data = {

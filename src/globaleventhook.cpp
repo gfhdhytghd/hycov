@@ -438,11 +438,35 @@ void registerGlobalEventHook()
     static auto pMouseButtonCallback = HyprlandAPI::registerCallbackDynamic(PHANDLE, "mouseButton", [](void* self, SCallbackInfo& info, std::any data) {
       auto e = std::any_cast<IPointer::SButtonEvent>(data);
       
-      // Only process press events in overview mode
-      if (!g_hycov_isOverView || e.state != WL_POINTER_BUTTON_STATE_PRESSED) {
+      if (!g_hycov_isOverView) {
         return;
       }
       
+      // Handle button release - check for drag completion
+      if (e.state != WL_POINTER_BUTTON_STATE_PRESSED) {
+        if (g_hycov_isDragging && e.button == BTN_LEFT) {
+          Vector2D mouseCoords = g_pInputManager->getMouseCoordsInternal();
+          auto targetMonitor = g_pCompositor->getMonitorFromVector(mouseCoords);
+          
+          if (g_hycov_draggedWindow && targetMonitor && targetMonitor->m_id != g_hycov_dragStartMonitor) {
+            // Save for pending move AFTER overview exits
+            g_hycov_pendingMoveWindow = g_hycov_draggedWindow;
+            g_hycov_pendingMoveMonitor = targetMonitor;
+            hycov_log(LOG, "Drag release: pending move to monitor {}", targetMonitor->m_id);
+          }
+          
+          // Reset drag state
+          g_hycov_isDragging = false;
+          g_hycov_draggedWindow = nullptr;
+          
+          // Exit overview
+          dispatch_toggleoverview("internalToggle");
+          info.cancelled = true;
+        }
+        return;
+      }
+      
+      // Handle button press
       if (e.button != BTN_LEFT && e.button != BTN_RIGHT) {
         return;
       }
@@ -468,11 +492,44 @@ void registerGlobalEventHook()
       info.cancelled = true;
 
       if (e.button == BTN_LEFT) {
-        dispatch_toggleoverview("internalToggle");
+        // Start drag instead of immediately exiting
+        Vector2D mouseCoords = g_pInputManager->getMouseCoordsInternal();
+        auto currentMonitor = g_pCompositor->getMonitorFromVector(mouseCoords);
+        
+        g_hycov_isDragging = true;
+        g_hycov_draggedWindow = focusedWindow;
+        g_hycov_dragStartPos = mouseCoords;
+        g_hycov_dragStartMonitor = currentMonitor ? currentMonitor->m_id : -1;
       } else if (e.button == BTN_RIGHT) {
         g_pCompositor->closeWindow(focusedWindow);
       }
     });
+    
+    // Register mouse move callback for visual dragging
+    static auto pMouseMoveCallback = HyprlandAPI::registerCallbackDynamic(PHANDLE, "mouseMove", [](void* self, SCallbackInfo& info, std::any data) {
+      if (!g_hycov_isDragging || !g_hycov_draggedWindow) {
+        return;
+      }
+      
+      Vector2D mouseCoords = g_pInputManager->getMouseCoordsInternal();
+      Vector2D delta = mouseCoords - g_hycov_dragStartPos;
+      
+      // Move window with cursor
+      Vector2D newPos = g_hycov_draggedWindow->m_position + delta;
+      g_hycov_draggedWindow->m_position = newPos;
+      *g_hycov_draggedWindow->m_realPosition = newPos;
+      g_hycov_draggedWindow->m_realPosition->warp();
+      g_hycov_dragStartPos = mouseCoords;
+      
+      // Update window's monitor based on cursor position so it renders on the correct monitor
+      auto currentMonitor = g_pCompositor->getMonitorFromVector(mouseCoords);
+      if (currentMonitor && g_hycov_draggedWindow->m_monitor.get() != currentMonitor.get()) {
+        g_hycov_draggedWindow->m_monitor = currentMonitor;
+      }
+      
+      g_pHyprRenderer->damageWindow(g_hycov_draggedWindow);
+    });
+    
     hycov_log(LOG, "hycov: Registered mouseButton callback (dynamic)");
   }
 
