@@ -442,7 +442,6 @@ void registerGlobalEventHook()
         return;
       }
       
-      // Handle button release - check for drag completion
       if (e.state != WL_POINTER_BUTTON_STATE_PRESSED) {
         if (g_hycov_isDragging && e.button == BTN_LEFT) {
           Vector2D mouseCoords = g_pInputManager->getMouseCoordsInternal();
@@ -455,18 +454,15 @@ void registerGlobalEventHook()
             hycov_log(LOG, "Drag release: pending move to monitor {}", targetMonitor->m_id);
           }
           
-          // Reset drag state
           g_hycov_isDragging = false;
           g_hycov_draggedWindow = nullptr;
           
-          // Exit overview
           dispatch_toggleoverview("internalToggle");
           info.cancelled = true;
         }
         return;
       }
       
-      // Handle button press
       if (e.button != BTN_LEFT && e.button != BTN_RIGHT) {
         return;
       }
@@ -492,7 +488,6 @@ void registerGlobalEventHook()
       info.cancelled = true;
 
       if (e.button == BTN_LEFT) {
-        // Start drag instead of immediately exiting
         Vector2D mouseCoords = g_pInputManager->getMouseCoordsInternal();
         auto currentMonitor = g_pCompositor->getMonitorFromVector(mouseCoords);
         
@@ -514,14 +509,14 @@ void registerGlobalEventHook()
       Vector2D mouseCoords = g_pInputManager->getMouseCoordsInternal();
       Vector2D delta = mouseCoords - g_hycov_dragStartPos;
       
-      // Move window with cursor
+      // Cursor mouse drag, PLEASE WORK PLEASE PLEASE PLEASE
       Vector2D newPos = g_hycov_draggedWindow->m_position + delta;
       g_hycov_draggedWindow->m_position = newPos;
       *g_hycov_draggedWindow->m_realPosition = newPos;
       g_hycov_draggedWindow->m_realPosition->warp();
       g_hycov_dragStartPos = mouseCoords;
       
-      // Update window's monitor based on cursor position so it renders on the correct monitor
+      // Try to update multi-monitor render on drag, meh it might work even if it isnt the most beautiful solution
       auto currentMonitor = g_pCompositor->getMonitorFromVector(mouseCoords);
       if (currentMonitor && g_hycov_draggedWindow->m_monitor.get() != currentMonitor.get()) {
         g_hycov_draggedWindow->m_monitor = currentMonitor;
@@ -532,6 +527,54 @@ void registerGlobalEventHook()
     
     hycov_log(LOG, "hycov: Registered mouseButton callback (dynamic)");
   }
+
+  // Register keyPress callback for alt-release 
+  static auto pKeyPressCallback = HyprlandAPI::registerCallbackDynamic(PHANDLE, "keyPress", [](void* self, SCallbackInfo& info, std::any data) {
+    // Read config value dynamically to see if we bypass dumbass caching
+    static const auto *pEnableAltReleaseExit = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:enable_alt_release_exit")->getDataStaticPtr());
+    static const auto *pAltReplaceKey = (Hyprlang::STRING const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:alt_replace_key")->getDataStaticPtr());
+    
+    const bool altReleaseEnabled = **pEnableAltReleaseExit;
+    
+    // Early exit if feature disabled or not in overview
+    if (!altReleaseEnabled || !g_hycov_isOverView) {
+      return;
+    }
+
+    // Extract keyboard and event from the data map
+    auto dataMap = std::any_cast<std::unordered_map<std::string, std::any>>(data);
+    auto pKeyboard = std::any_cast<SP<IKeyboard>>(dataMap["keyboard"]);
+    auto event = std::any_cast<IKeyboard::SKeyEvent>(dataMap["event"]);
+
+    if (event.state != WL_KEYBOARD_KEY_STATE_RELEASED) {
+      return;
+    }
+
+    std::string altKey = *pAltReplaceKey;
+    int xkbKeycode = event.keycode + 8;
+    
+    // numeric keycode match
+    bool matched = false;
+    if (isNumber(altKey) && std::stoi(altKey) > 9 && std::stoi(altKey) == xkbKeycode) {
+      matched = true;
+    } else if (altKey.find("code:") == 0 && isNumber(altKey.substr(5)) && std::stoi(altKey.substr(5)) == xkbKeycode) {
+      matched = true;
+    } else {
+      // symbolic keyname match
+      std::string keyname = getKeynameFromKeycode(event, pKeyboard);
+      if (!keyname.empty() && keyname == altKey) {
+        matched = true;
+      }
+    }
+
+    if (!matched) {
+      return;
+    }
+
+    hycov_log(LOG, "[hycov] Alt key released (keycode {}), exiting overview", xkbKeycode);
+    dispatch_leaveoverview("");
+  });
+  hycov_log(LOG, "hycov: Registered keyPress callback for alt-release exit");
 
   //changeGroupActive
   g_hycov_pCKeybindManager_changeGroupActiveHook = HyprlandAPI::createFunctionHook(PHANDLE, (void*)&CKeybindManager::changeGroupActive, (void*)&hkCKeybindManager_changeGroupActive);
@@ -595,9 +638,6 @@ void registerGlobalEventHook()
     g_hycov_pCWindow_onUnmap->hook();
   }
 
-  //apply hook OnKeyboardKey function
-  if (g_hycov_enable_alt_release_exit) {
-      g_hycov_pOnKeyboardKeyHook->hook();
-  }
+  // Alt-release exit is now handled by keyPress callback registered above
 
 }

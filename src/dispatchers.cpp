@@ -600,14 +600,11 @@ void dispatch_leaveoverview(std::string arg)
 	if (g_hycov_pendingMoveWindow && g_hycov_pendingMoveMonitor) {
 		hycov_log(LOG, "Applying pending move to monitor {}", g_hycov_pendingMoveMonitor->m_id);
 		
-		// Focus the window first so movewindow operates on it
 		Desktop::focusState()->fullWindowFocus(g_hycov_pendingMoveWindow);
 		
-		// Use Hyprland's movewindow dispatcher
 		std::string moveArg = "mon:" + std::to_string(g_hycov_pendingMoveMonitor->m_id);
 		g_pKeybindManager->m_dispatchers["movewindow"](moveArg);
 		
-		// Recalculate both monitors
 		g_pLayoutManager->getCurrentLayout()->recalculateMonitor(g_hycov_pendingMoveMonitor->m_id);
 		g_pLayoutManager->getCurrentLayout()->recalculateMonitor(g_hycov_dragStartMonitor);
 		

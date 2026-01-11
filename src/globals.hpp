@@ -97,8 +97,6 @@ inline bool g_hycov_isDragging = false;
 inline PHLWINDOW g_hycov_draggedWindow = nullptr;
 inline Vector2D g_hycov_dragStartPos = {0, 0};
 inline MONITORID g_hycov_dragStartMonitor = -1;
-
-// Pending move after overview exit
 inline PHLWINDOW g_hycov_pendingMoveWindow = nullptr;
 inline PHLMONITOR g_hycov_pendingMoveMonitor = nullptr;
 
