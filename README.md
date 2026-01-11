@@ -20,18 +20,18 @@ A Hyprland overview mode plugin, a new tiling WM workflow.
 | Overview toggle | Working |
 | Click to select window | Working |
 | Right-click to close | Working |
-| Hotarea (corner trigger) | Disabled (causes input issues) |
-| Gesture support | Untested |
-| Alt-release exit | Untested |
-| Auto-exit on window close | Untested |
-| Multi-monitor | Untested |
+| Multi-monitor | Working |
+| Auto-exit on window close | Working |
+| Gesture support (touchpad) | Working |
+| Alt-release exit | Experimental |
+| Hotarea (corner trigger) | Removed (caused input issues) |
 
 ### What can it do?
 - Hycov can tile all of your windows in a single workspace via grid layout.
 
 - After quitting the overview mode, hycov can perfectly recover a window's previous state (fullscreen, floating, size, positon, etc.)
 
-- Hycov supports a variety of trigger methods, such as touch pad gestures, hot corners, and keyboard shortcuts.
+- Hycov supports a variety of trigger methods, such as touchpad gestures and keyboard shortcuts.
 
 - Supports multiple monitors.
 
@@ -45,14 +45,22 @@ Anyone is welcome to fork. If you end up improving the plugin, please let me kno
 ### Manual Installation
 
 > [!NOTE]
-> 1. After Hycov is installed, you will need to logout, then log back in. This may happen automatically, but do not worry. This behaviour is normal.
-> 2. Only supports hyprland source code after 2023-10-22, because the plugin requires this [commit](https://github.com/hyprwm/Hyprland/commit/a61eb7694df25a75f45502ed64b1536fda370c1d) in [hyprland](https://github.com/hyprwm/Hyprland).
-> 3. Each release of hycov corresponds to each release of hyprland. If you are using a release version of hycov, but you are using the latest hyprland-git, this may not be available. 
+> 1. After Hycov is installed, you may need to logout and log back in.
+> 2. This fork targets **Hyprland v0.53.0+**. For older Hyprland versions, use the [original repo](https://github.com/DreamMaoMao/hycov). or another fork if the original repo does not support ur Hyprland version.
+
+##### Using make (recommended for this fork):
+
+```shell
+git clone https://github.com/ernestoCruz05/hycov.git
+cd hycov
+make all
+sudo cp build/libhycov.so /usr/lib/
+```
 
 ##### Using meson and ninja:
 
 ```shell
-git clone https://github.com/DreamMaoMao/hycov.git
+git clone https://github.com/ernestoCruz05/hycov.git
 cd hycov
 sudo meson setup build --prefix=/usr
 sudo ninja -C build
@@ -62,7 +70,7 @@ sudo ninja -C build install # `libhycov.so` path: /usr/lib/libhycov.so
 ##### Using CMake:
 
 ```shell
-git clone https://github.com/DreamMaoMao/hycov.git
+git clone https://github.com/ernestoCruz05/hycov.git
 cd hycov
 bash install.sh # `libhycov.so` path: /usr/lib/libhycov.so
 ```
@@ -71,7 +79,7 @@ bash install.sh # `libhycov.so` path: /usr/lib/libhycov.so
 
 ```shell
 hyprpm update
-hyprpm add https://github.com/DreamMaoMao/hycov
+hyprpm add https://github.com/ernestoCruz05/hycov
 hyprpm enable hycov
 ```
 
@@ -114,27 +122,34 @@ bind=ALT,down,hycov:movefocus,downcross
 
 plugin {
     hycov {
+        # Gaps and appearance
         overview_gappo = 60 # gaps width from screen edge
         overview_gappi = 24 # gaps width from clients
-        enable_hotarea = 1 # enable mouse cursor hotarea, when cursor enter hotarea, it will toggle overview    
+        
+        # Mouse click actions
         enable_click_action = 1 # enable mouse left button jump and right button kill in overview mode
-        hotarea_monitor = all # monitor name which hotarea is in, default is all
-        hotarea_pos = 1 # position of hotarea (1: bottom left, 2: bottom right, 3: top left, 4: top right)
-        hotarea_size = 10 # hotarea size, 10x10
-        swipe_fingers = 4 # finger number of gesture,move any directory
-        move_focus_distance = 100 # distance for movefocus,only can use 3 finger to move 
-        enable_gesture = 0 # enable gesture
+        click_in_cursor = 1 # when click to jump, find target window by cursor position
+        
+        # Gesture settings (touchpad)
+        enable_gesture = 0 # enable touchpad gesture to toggle overview
+        swipe_fingers = 4 # number of fingers for gesture (3-4 recommended)
+        move_focus_distance = 100 # swipe distance to move focus in overview
+        
+        # Behavior settings
         auto_exit = 1 # enable auto exit when no client in overview
         auto_fullscreen = 0 # auto make active window maximize after exit overview
         only_active_workspace = 0 # only overview the active workspace
         only_active_monitor = 0 # only overview the active monitor
-        enable_alt_release_exit = 0 # alt swith mode arg,see readme for detail
-        alt_replace_key = Alt_L # alt swith mode arg,see readme for detail
-        alt_toggle_auto_next = 0 # auto focus next window when toggle overview in alt swith mode
-        click_in_cursor = 1 # when click to jump,the target windwo is find by cursor, not the current foucus window.
-        hight_of_titlebar = 0 # height deviation of title bar height
-        show_special = 0 # show windwos in special workspace in overview.
-        raise_float_to_top = 1 # raise the window that is floating before to top after leave overview mode
+        show_special = 0 # show windows in special workspace in overview
+        raise_float_to_top = 1 # raise floating windows to top after leaving overview
+        
+        # Alt-release mode (experimental)
+        enable_alt_release_exit = 0 # alt switch mode, see readme for detail
+        alt_replace_key = Alt_L # key to detect for alt-release exit
+        alt_toggle_auto_next = 0 # auto focus next window when toggle overview in alt switch mode
+        
+        # Advanced settings (usually don't need to change)
+        height_of_titlebar = 0 # height deviation of title bar height
     }
 }
 
@@ -206,6 +221,11 @@ alt_replace_key = code:133 # use `xev` command to get keycode
 
 </details>
 
+> [!WARNING]
+> **I do not use NixOS personally!** The Nix derivation below is community-maintained. 
+> If it breaks due to Hyprland updates, please feel free to submit a Pull Request to fix it.
+> I will do my best to update the plugin everytime the API changes.
+
 ### NixOS with home—manager
 
 ```nix
@@ -223,7 +243,7 @@ alt_replace_key = code:133 # use `xev` command to get keycode
     hyprland.url = "github:hyprwm/Hyprland";
 
     hycov={
-      url = "github:DreamMaoMao/hycov";
+      url = "github:ernestoCruz05/hycov"; # Use this fork for Hyprland v0.53+
       inputs.hyprland.follows = "hyprland";
     };
   };
@@ -257,8 +277,9 @@ alt_replace_key = code:133 # use `xev` command to get keycode
                     hycov {
                       overview_gappo = 60 #gaps width from screen
                       overview_gappi = 24 #gaps width from clients
-                	    hotarea_size = 10 #hotarea size in bottom left,10x10
-                	    enable_hotarea = 1 # enable mouse cursor hotarea
+                      enable_click_action = 1 # left-click to select, right-click to close
+                      enable_gesture = 1 # enable touchpad gestures
+                      swipe_fingers = 4 # 4-finger swipe to toggle
                     }
                 }
               '' + ''
@@ -273,74 +294,31 @@ alt_replace_key = code:133 # use `xev` command to get keycode
 }
 ```
 ## Frequently Asked Questions
-- some config not work, or the plugin not work.
-```
-if you use install hycov at first time,please try logout and relogin again.
-```
 
-- The numbers on the waybar are confused
-
+- **Plugin not loading or config not working**
 ```
-1.Please pull the latest waybar source code compilation,
-this issue has been fixed in the waybar project, fix date (2023-10-27)
-
-2.Change the {id} field in hyprland/workspace field to {name}
+Try logging out and logging back in after first installation.
 ```
 
-- Compilation failure
+- **The numbers on the waybar are confused**
 ```
-Please pull the latest hyprland source code to compile and install.
-The plugin relies on a hyprland pr,pr submission date (2023-10-21)
-```
-
-- Unable to load
-```
-Check whether hyprland has been updated,
-and if so, please recompile hyprcov
+Change the {id} field in hyprland/workspace to {name}
 ```
 
-- build fail with message `No such file or directory #include <wlr/xxx>`
+- **Unable to load / plugin crashes**
 ```
-#step1
-yay -R hyprland-git wlroots-git
-
-#step2
-sudo rm -rf /usr/include/hyprland
-sudo rm -rf /usr/include/wlr
-sudo rm -rf/usr/local/include/hyprland
-sudo rm -rf /usr/local/include/wlr
-
-#step3
-yay -S  wlroots-git hyprland-git
+Make sure you rebuild hycov after updating Hyprland.
+This fork is built for Hyprland v0.53.0+.
 ```
 
-
-## Some cool use cases
-<details>
-<summary> hycov + [hyprland-easymotion](https://github.com/zakk4223/hyprland-easymotion) </summary>
-
-
-https://github.com/DreamMaoMao/hycov/assets/30348075/486b08f1-be0d-4647-90a3-2029961402cd
-
-
-```conf
-bind = ALT,tab, exec, ~/.config/hypr/scripts/hycov-easymotion.sh
-submap=__easymotionsubmap__ 
-bind = ALT, Tab, exec, ~/.config/hypr/scripts/hycov-easymotion.sh
-submap=reset
+- **Mouse clicks not working in overview**
+```
+Make sure enable_click_action = 1 is set in your config.
 ```
 
-```bash
-#!/bin/bash
-
-workspace_name=$(hyprctl -j activeworkspace | jq -r '.name')
-
-if [ "$workspace_name" = "OVERVIEW" ]; then
-    hyprctl dispatch hycov:leaveoverview
-else
-    hyprctl dispatch hycov:enteroverview
-    hyprctl dispatch 'easymotion action:hyprctl --batch "dispatch focuswindow address:{} ; dispatch hycov:leaveoverview"'
-fi
+- **Gestures not working**
+```
+Make sure enable_gesture = 1 is set and swipe_fingers matches the 
+number of fingers you're using on your touchpad.
 ```
 
-</details>
