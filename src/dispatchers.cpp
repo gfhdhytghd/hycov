@@ -101,10 +101,6 @@ static bool validateScrollingConsistency() {
 			continue;
 		}
 
-		if (!pWindow->m_workspace->isVisible()) {
-			continue;
-		}
-
 		sampled++;
 		if (!g_pLayoutManager->getCurrentLayout()->isWindowTiled(pWindow)) {
 			missing++;
