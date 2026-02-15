@@ -2,6 +2,7 @@
 
 #include <hyprland/src/layout/IHyprLayout.hpp>
 #include <hyprland/src/SharedDefs.hpp>
+#include <utility>
 
 struct SOvGridNodeData
 {
@@ -21,6 +22,7 @@ struct SOvGridNodeData
   bool ovbk_windowIsWithDecorate = true;
   bool ovbk_windowIsWithRounding = true;
   bool ovbk_windowIsWithShadow = true;
+  bool ovbk_movedForOverview = false;
   bool isInOldLayout = false;
   bool isGroupActive = false;
 
@@ -74,7 +76,7 @@ public:
   void moveWindowToWorkspaceSilent(PHLWINDOW , const WORKSPACEID &);
   std::list<SOvGridNodeData> m_lOvGridNodesData; 
   std::list<SOldLayoutRecordNodeData> m_lSOldLayoutRecordNodeData; 
-  void moveWindowToSourceWorkspace();
+  std::pair<int, int> moveWindowToSourceWorkspace();
   void changeToActivceSourceWorkspace();
   void removeOldLayoutData(PHLWINDOW pWindow);
 private:

@@ -4,6 +4,14 @@ static const std::string overviewWorksapceName = "OVERVIEW";
 static std::string workspaceNameBackup;
 static WORKSPACEID workspaceIdBackup;
 
+static void refreshRuntimeLayoutState() {
+	static const auto *pConfigLayoutName = (Hyprlang::STRING const*)(HyprlandAPI::getConfigValue(PHANDLE, "general:layout")->getDataStaticPtr());
+	if (pConfigLayoutName) {
+		g_hycov_configLayoutName = *pConfigLayoutName;
+	}
+	g_hycov_compat_scrolling_active = (g_hycov_configLayoutName == "scrolling");
+}
+
 void recalculateAllMonitor() {
 	for (auto &m : g_pCompositor->m_monitors) {
 		PHLMONITOR pMonitor = m;
@@ -319,6 +327,9 @@ void dispatch_enteroverview(std::string arg)
 		return;
 	}
 
+	refreshRuntimeLayoutState();
+	g_hycov_overview_source_layout = g_hycov_configLayoutName;
+
 	const auto pMonitor = Desktop::focusState()->monitor();
 	if(pMonitor->activeSpecialWorkspaceID() != 0)
 		pMonitor->setSpecialWorkspace(nullptr);
@@ -368,7 +379,7 @@ void dispatch_enteroverview(std::string arg)
 		return;
 	}
 
-	hycov_log(LOG,"enter overview");
+	hycov_log(LOG,"enter overview,sourceLayout:{},scrollingCompat:{}",g_hycov_overview_source_layout,g_hycov_compat_scrolling_active);
 	g_hycov_isOverView = true;
 
 	//make all fullscreen window exit fullscreen state
@@ -388,6 +399,13 @@ void dispatch_enteroverview(std::string arg)
 	// g_pLayoutManager->switchToLayout("ovgrid");
 	switchToLayoutWithoutReleaseData("ovgrid");
 	g_pLayoutManager->getCurrentLayout()->onEnable();
+	size_t movedNodeCount = 0;
+	for (const auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData) {
+		if (n.ovbk_movedForOverview) {
+			movedNodeCount++;
+		}
+	}
+	hycov_log(LOG,"overview prepared,nodes:{} movedNodes:{}",g_hycov_OvGridLayout->m_lOvGridNodesData.size(),movedNodeCount);
 
 	//change workspace name to OVERVIEW
 	pActiveMonitor	= Desktop::focusState()->monitor();
@@ -442,10 +460,9 @@ void dispatch_leaveoverview(std::string arg)
 	if(pMonitor->activeSpecialWorkspaceID() != 0)
 		pMonitor->setSpecialWorkspace(nullptr);
 	
-	// get default layout
-	std::string *configLayoutName = &g_hycov_configLayoutName;
+	std::string sourceLayout = g_hycov_overview_source_layout.empty() ? g_hycov_configLayoutName : g_hycov_overview_source_layout;
 	
-	hycov_log(LOG,"leave overview");
+	hycov_log(LOG,"leave overview,sourceLayout:{},scrollingCompat:{}",sourceLayout,g_hycov_compat_scrolling_active);
 	g_hycov_isOverView = false;
 	//mark exiting overview mode
 	g_hycov_isOverViewExiting = true;
@@ -472,15 +489,17 @@ void dispatch_leaveoverview(std::string arg)
 	// if no clients, just exit overview, don't restore client's state
 	if (g_hycov_OvGridLayout->m_lOvGridNodesData.empty())
 	{
-		switchToLayoutWithoutReleaseData(*configLayoutName);
+		switchToLayoutWithoutReleaseData(sourceLayout);
 		recalculateAllMonitor();
 		g_hycov_OvGridLayout->m_lOvGridNodesData.clear();
 		g_hycov_isOverViewExiting = false;
+		g_hycov_overview_source_layout.clear();
 		return;
 	}
 
 	//move clients to it's original workspace 
-	g_hycov_OvGridLayout->moveWindowToSourceWorkspace();
+	const auto [restoreOk, restoreFail] = g_hycov_OvGridLayout->moveWindowToSourceWorkspace();
+	hycov_log(LOG,"overview restore summary,ok:{} fail:{}",restoreOk,restoreFail);
 	// go to the workspace where the active client was before
 	g_hycov_OvGridLayout->changeToActivceSourceWorkspace();
 	
@@ -516,7 +535,7 @@ void dispatch_leaveoverview(std::string arg)
 			// n.pWindow->m_vRealPosition = calcPos;
 
 			// some app sometime can't catch window size to restore,don't use dirty data,remove refer data in old layout.
-			if (n.ovbk_size.x == 0 && n.ovbk_size.y == 0 && n.isInOldLayout) {
+			if (n.ovbk_size.x == 0 && n.ovbk_size.y == 0 && n.isInOldLayout && !g_hycov_compat_scrolling_active) {
 				g_hycov_OvGridLayout->removeOldLayoutData(n.pWindow);
 				n.isInOldLayout = false;
 			} else {
@@ -535,8 +554,18 @@ void dispatch_leaveoverview(std::string arg)
 	Desktop::focusState()->rawWindowFocus(nullptr);
 	// g_pLayoutManager->switchToLayout(*configLayoutName);
 	// g_pLayoutManager->getCurrentLayout()->onDisable();
-	switchToLayoutWithoutReleaseData(*configLayoutName);
+	switchToLayoutWithoutReleaseData(sourceLayout);
 	recalculateAllMonitor();
+	if(g_hycov_compat_scrolling_active) {
+		for (const auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData) {
+			if (!n.pWindow) {
+				continue;
+			}
+			g_pLayoutManager->getCurrentLayout()->recalculateMonitor(n.ovbk_windowMonitorId);
+			g_pLayoutManager->getCurrentLayout()->recalculateMonitor(n.pWindow->monitorID());
+		}
+		recalculateAllMonitor();
+	}
 
 	//Preserve window focus
 	if(pActiveWindow){
@@ -589,6 +618,7 @@ void dispatch_leaveoverview(std::string arg)
 
 	//clean overview layout node date
 	g_hycov_OvGridLayout->m_lOvGridNodesData.clear();
+	g_hycov_overview_source_layout.clear();
 
 	//mark has exited overview mode
 	g_hycov_isOverViewExiting = false;

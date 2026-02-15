@@ -125,6 +125,7 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
         pNode->workspaceID = pWindow->m_workspace->m_id;
         pNode->workspaceName = pActiveWorkspace->m_name;
         pWindow->m_monitor = pTargetMonitor;
+        pNode->ovbk_movedForOverview = true;
     }
 
     // clean fullscreen status
@@ -144,11 +145,11 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
 
 void OvGridLayout::removeOldLayoutData(PHLWINDOW pWindow) { 
 
-	std::string *configLayoutName = &g_hycov_configLayoutName;
-    switchToLayoutWithoutReleaseData(*configLayoutName);
-    hycov_log(LOG,"remove data of old layout:{}",*configLayoutName);
+	std::string configLayoutName = g_hycov_overview_source_layout.empty() ? g_hycov_configLayoutName : g_hycov_overview_source_layout;
+    switchToLayoutWithoutReleaseData(configLayoutName);
+    hycov_log(LOG,"remove data of old layout:{}",configLayoutName);
 
-    if(*configLayoutName == "dwindle") {
+    if(configLayoutName == "dwindle") {
         // disable render client of old layout
         g_hycov_pHyprDwindleLayout_recalculateMonitorHook->hook();
         g_hycov_pHyprDwindleLayout_recalculateWindowHook->hook();
@@ -160,15 +161,19 @@ void OvGridLayout::removeOldLayoutData(PHLWINDOW pWindow) {
         g_hycov_pSDwindleNodeData_recalcSizePosRecursiveHook->unhook();
         g_hycov_pHyprDwindleLayout_recalculateWindowHook->unhook();
         g_hycov_pHyprDwindleLayout_recalculateMonitorHook->unhook();
-    } else if(*configLayoutName == "master") {
+    } else if(configLayoutName == "master") {
         g_hycov_pHyprMasterLayout_recalculateMonitorHook->hook();
 
         g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
 
         g_hycov_pHyprMasterLayout_recalculateMonitorHook->unhook();
+    } else if (configLayoutName == "scrolling") {
+        // scrolling keeps its own workspace->window mapping cache.
+        // During overview we only strip old-layout nodes, never invoke dwindle/master hooks here.
+        g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
     } else {
         // may be not support other layout
-        hycov_log(Log::ERR,"unknow old layout:{}",*configLayoutName);
+        hycov_log(LOG,"unknow old layout:{}, trying generic window removal",configLayoutName);
         g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
     }
 
@@ -513,15 +518,22 @@ void OvGridLayout::changeToActivceSourceWorkspace()
     EMIT_HOOK_EVENT("workspace", pWorksapce);
 }
 
-void OvGridLayout::moveWindowToSourceWorkspace()
+std::pair<int, int> OvGridLayout::moveWindowToSourceWorkspace()
 {
     PHLWORKSPACE pWorkspace;
+    int restored = 0;
+    int failed = 0;
     
     hycov_log(LOG,"moveWindowToSourceWorkspace");
 
     for (auto &nd : m_lOvGridNodesData)
     {
-        if (nd.pWindow && (nd.pWindow->m_workspace->m_id != nd.ovbk_windowWorkspaceId || nd.workspaceName != nd.ovbk_windowWorkspaceName ))
+        if (!nd.pWindow) {
+            continue;
+        }
+
+        const bool needsRestore = nd.ovbk_movedForOverview || nd.pWindow->m_workspace->m_id != nd.ovbk_windowWorkspaceId || nd.workspaceName != nd.ovbk_windowWorkspaceName;
+        if (needsRestore)
         {
             pWorkspace = g_pCompositor->getWorkspaceByID(nd.ovbk_windowWorkspaceId);
             if (!pWorkspace){
@@ -531,15 +543,28 @@ void OvGridLayout::moveWindowToSourceWorkspace()
                 g_hycov_pSpawnHook->unhook();
                 hycov_log(LOG,"create workspace: id:{} monitor:{} name:{}",nd.ovbk_windowWorkspaceId,nd.pWindow->monitorID(),nd.ovbk_windowWorkspaceName);
             }
-            nd.pWindow->m_monitor = g_pCompositor->getMonitorFromID(nd.ovbk_windowMonitorId);
+
+            auto pMonitor = g_pCompositor->getMonitorFromID(nd.ovbk_windowMonitorId);
+            if (!pWorkspace || !pMonitor) {
+                failed++;
+                hycov_log(Log::ERR,"restore source workspace failed,window:{} workspace:{} monitor:{}",nd.pWindow,nd.ovbk_windowWorkspaceId,nd.ovbk_windowMonitorId);
+                continue;
+            }
+
+            nd.pWindow->m_monitor = pMonitor;
             nd.pWindow->m_workspace = pWorkspace;
             nd.workspaceID = nd.ovbk_windowWorkspaceId;
             nd.workspaceName = nd.ovbk_windowWorkspaceName;
             nd.pWindow->m_position = nd.ovbk_position;
             nd.pWindow->m_size = nd.ovbk_size;
             g_pHyprRenderer->damageWindow(nd.pWindow);
+            nd.ovbk_movedForOverview = false;
+            restored++;
         }
     }
+
+    hycov_log(LOG,"moveWindowToSourceWorkspace done,restored:{} failed:{}",restored,failed);
+    return {restored, failed};
 }
 
 // it will exec once when change layout enable
