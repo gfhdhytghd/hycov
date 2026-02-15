@@ -35,6 +35,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 	CONF("show_special",  0L);
 	CONF("enable_click_action",  1L);
 	CONF("raise_float_to_top",  1L);
+	CONF("scrolling_guard_activewindow", 1L);
+	CONF("scrolling_failsafe", 1L);
 
 #undef CONF
 
@@ -63,6 +65,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 	static const auto *pShow_special_config = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:show_special")->getDataStaticPtr());
 	static const auto *pEnable_click_action_config = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:enable_click_action")->getDataStaticPtr());
 	static const auto *pRaise_float_to_top = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:raise_float_to_top")->getDataStaticPtr());
+	static const auto *pScrolling_guard_activewindow = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:scrolling_guard_activewindow")->getDataStaticPtr());
+	static const auto *pScrolling_failsafe = (Hyprlang::INT* const*)(HyprlandAPI::getConfigValue(PHANDLE, "plugin:hycov:scrolling_failsafe")->getDataStaticPtr());
 
 
 	// string value
@@ -95,6 +99,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 	g_hycov_show_special = **pShow_special_config;
 	g_hycov_enable_click_action = **pEnable_click_action_config;
 	g_hycov_raise_float_to_top = **pRaise_float_to_top;
+	g_hycov_scrolling_guard_activewindow = **pScrolling_guard_activewindow;
+	g_hycov_scrolling_failsafe = **pScrolling_failsafe;
 
 	// string value
 	g_hycov_alt_replace_key = *pAlt_replace_key;

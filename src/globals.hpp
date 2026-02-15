@@ -64,8 +64,11 @@ inline std::string g_hycov_configLayoutName;
 inline int g_hycov_show_special;
 inline int g_hycov_enable_click_action;
 inline int g_hycov_raise_float_to_top;
+inline int g_hycov_scrolling_guard_activewindow;
+inline int g_hycov_scrolling_failsafe;
 inline bool g_hycov_compat_scrolling_active = false;
 inline std::string g_hycov_overview_source_layout;
+inline SP<HOOK_CALLBACK_FN> g_hycov_pActiveWindowGuardCallback;
 
 
 inline bool g_hycov_isOverViewExiting;

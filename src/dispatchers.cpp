@@ -19,6 +19,69 @@ void recalculateAllMonitor() {
 	}
 }
 
+static bool isScrollingLayoutActive() {
+	if (!g_pLayoutManager->getCurrentLayout()) {
+		return false;
+	}
+
+	return g_pLayoutManager->getCurrentLayout()->getLayoutName() == "scrolling";
+}
+
+static bool shouldCheckScrollingConsistency(const std::string& sourceLayout) {
+	return g_hycov_compat_scrolling_active && g_hycov_scrolling_failsafe && sourceLayout == "scrolling" && isScrollingLayoutActive();
+}
+
+static bool validateScrollingConsistency() {
+	if (!g_pLayoutManager->getCurrentLayout()) {
+		return true;
+	}
+
+	size_t sampled = 0;
+	size_t missing = 0;
+
+	for (auto &w : g_pCompositor->m_windows) {
+		PHLWINDOW pWindow = w;
+		if (!pWindow || !pWindow->m_workspace) {
+			continue;
+		}
+
+		if (pWindow->m_isFloating || pWindow->isHidden() || !pWindow->m_isMapped || pWindow->m_fadingOut) {
+			continue;
+		}
+
+		if (!pWindow->m_workspace->isVisible()) {
+			continue;
+		}
+
+		sampled++;
+		if (!g_pLayoutManager->getCurrentLayout()->isWindowTiled(pWindow)) {
+			missing++;
+		}
+	}
+
+	hycov_log(LOG, "scrolling consistency check sampled:{} missing:{}", sampled, missing);
+	return sampled == 0 || missing == 0;
+}
+
+static void recoverScrollingStateInPlace(PHLWINDOW pFocusCandidate) {
+	auto* layout = g_pLayoutManager->getCurrentLayout();
+	if (!layout) {
+		return;
+	}
+
+	hycov_log(LOG, "scrolling consistency recovery begin");
+	layout->onDisable();
+	layout->onEnable();
+	recalculateAllMonitor();
+
+	if (pFocusCandidate && pFocusCandidate->m_isMapped && !pFocusCandidate->isHidden() && !pFocusCandidate->m_fadingOut) {
+		Desktop::focusState()->fullWindowFocus(pFocusCandidate);
+		g_pCompositor->warpCursorTo(pFocusCandidate->middle());
+	}
+
+	hycov_log(LOG, "scrolling consistency recovery complete");
+}
+
 // only change layout,keep data of previous layout
 void switchToLayoutWithoutReleaseData(std::string layout) {
     for (size_t i = 0; i < g_pLayoutManager->m_layouts.size(); ++i) {
@@ -565,6 +628,15 @@ void dispatch_leaveoverview(std::string arg)
 			g_pLayoutManager->getCurrentLayout()->recalculateMonitor(n.pWindow->monitorID());
 		}
 		recalculateAllMonitor();
+	}
+	if (shouldCheckScrollingConsistency(sourceLayout)) {
+		if (!validateScrollingConsistency()) {
+			hycov_log(LOG, "scrolling consistency mismatch detected, enabling failsafe recovery");
+			recoverScrollingStateInPlace(pActiveWindow);
+			if (!validateScrollingConsistency()) {
+				hycov_log(Log::ERR, "scrolling consistency recovery failed, manual layout reset may be required");
+			}
+		}
 	}
 
 	//Preserve window focus

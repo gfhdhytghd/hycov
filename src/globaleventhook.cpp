@@ -433,6 +433,19 @@ void registerGlobalEventHook()
   //mouse
   g_hycov_pCInputManager_mouseMoveUnifiedHook = HyprlandAPI::createFunctionHook(PHANDLE, (void*)&CInputManager::mouseMoveUnified, (void*)&hkCInputManager_mouseMoveUnified);
 
+  // Guard scrolling follow-focus callback while in overview.
+  // This avoids layout-owned activeWindow handlers from fighting ovgrid geometry.
+  g_hycov_pActiveWindowGuardCallback = HyprlandAPI::registerCallbackDynamic(PHANDLE, "activeWindow", [](void*, SCallbackInfo& info, std::any) {
+    if (!g_hycov_scrolling_guard_activewindow) {
+      return;
+    }
+    if (!g_hycov_isOverView || !g_hycov_compat_scrolling_active) {
+      return;
+    }
+
+    info.cancelled = true;
+  });
+
   //mousebutton - use dynamic callback (safe approach, doesn't corrupt mouse input)
   if(g_hycov_enable_click_action) {
     static auto pMouseButtonCallback = HyprlandAPI::registerCallbackDynamic(PHANDLE, "mouseButton", [](void* self, SCallbackInfo& info, std::any data) {
