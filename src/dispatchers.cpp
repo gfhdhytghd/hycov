@@ -426,6 +426,7 @@ void dispatch_enteroverview(std::string arg)
 	PHLWINDOW pActiveWindow = Desktop::focusState()->window();
 	PHLWORKSPACE pActiveWorkspace;
 	PHLMONITOR pActiveMonitor;
+	const bool scrollingSourceLayout = g_hycov_compat_scrolling_active && g_hycov_overview_source_layout == "scrolling";
 
 	bool isNoShouldTileWindow = true;
 
@@ -479,7 +480,14 @@ void dispatch_enteroverview(std::string arg)
 
 	//Preserve window focus
 	if(pActiveWindow){
-		Desktop::focusState()->fullWindowFocus(pActiveWindow); //restore the focus to before active window
+		// scrolling layout has an activeWindow callback that can immediately re-apply its geometry.
+		// Use raw focus here to avoid firing activeWindow while entering overview.
+		if (scrollingSourceLayout) {
+			Desktop::focusState()->rawWindowFocus(pActiveWindow);
+			hycov_log(LOG, "enter overview: use raw focus restore for scrolling source layout");
+		} else {
+			Desktop::focusState()->fullWindowFocus(pActiveWindow); //restore the focus to before active window
+		}
 
 	} else { // when no window is showed in current window,find from other workspace to focus(exclude special workspace)
     	for (auto &w : g_pCompositor->m_windows) {
@@ -487,7 +495,11 @@ void dispatch_enteroverview(std::string arg)
 			auto node = g_hycov_OvGridLayout->getNodeFromWindow(pWindow);
     	    if ( !node || g_pCompositor->isWorkspaceSpecial(node->workspaceID) || pWindow->isHidden() || !pWindow->m_isMapped || pWindow->m_fadingOut || pWindow->isFullscreen())
     	        continue;
-			Desktop::focusState()->fullWindowFocus(pWindow); // find the last window that is in same workspace with the remove window
+			if (scrollingSourceLayout) {
+				Desktop::focusState()->rawWindowFocus(pWindow);
+			} else {
+				Desktop::focusState()->fullWindowFocus(pWindow); // find the last window that is in same workspace with the remove window
+			}
     	}
 
 	}
