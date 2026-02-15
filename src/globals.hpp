@@ -69,6 +69,8 @@ inline int g_hycov_scrolling_failsafe;
 inline bool g_hycov_compat_scrolling_active = false;
 inline std::string g_hycov_overview_source_layout;
 inline SP<HOOK_CALLBACK_FN> g_hycov_pActiveWindowGuardCallback;
+inline bool g_hycov_scrolling_follow_focus_overridden = false;
+inline int g_hycov_scrolling_follow_focus_backup = 1;
 
 
 inline bool g_hycov_isOverViewExiting;

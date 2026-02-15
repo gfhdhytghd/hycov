@@ -1,15 +1,67 @@
 #include "dispatchers.hpp"
+#include <hyprland/src/config/ConfigManager.hpp>
 
 static const std::string overviewWorksapceName = "OVERVIEW";
 static std::string workspaceNameBackup;
 static WORKSPACEID workspaceIdBackup;
 
 static void refreshRuntimeLayoutState() {
-	static const auto *pConfigLayoutName = (Hyprlang::STRING const*)(HyprlandAPI::getConfigValue(PHANDLE, "general:layout")->getDataStaticPtr());
-	if (pConfigLayoutName) {
-		g_hycov_configLayoutName = *pConfigLayoutName;
+	if (g_pLayoutManager->getCurrentLayout()) {
+		g_hycov_configLayoutName = g_pLayoutManager->getCurrentLayout()->getLayoutName();
+	} else {
+		static const auto *pConfigLayoutName = (Hyprlang::STRING const*)(HyprlandAPI::getConfigValue(PHANDLE, "general:layout")->getDataStaticPtr());
+		if (pConfigLayoutName) {
+			g_hycov_configLayoutName = *pConfigLayoutName;
+		}
 	}
 	g_hycov_compat_scrolling_active = (g_hycov_configLayoutName == "scrolling");
+}
+
+static void setScrollingFollowFocusOverride(bool disable) {
+	if (!g_hycov_compat_scrolling_active) {
+		return;
+	}
+
+	const auto pValue = HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprscrolling:follow_focus");
+	if (!pValue) {
+		return;
+	}
+
+	const auto pData = (Hyprlang::INT* const*)(pValue->getDataStaticPtr());
+	if (!pData || !*pData) {
+		return;
+	}
+
+	if (disable) {
+		if (g_hycov_scrolling_follow_focus_overridden) {
+			return;
+		}
+
+		g_hycov_scrolling_follow_focus_backup = **pData;
+		const auto err = g_pConfigManager->parseKeyword("plugin:hyprscrolling:follow_focus", "0");
+		if (!err.empty()) {
+			hycov_log(Log::ERR, "failed to disable hyprscrolling follow_focus: {}", err);
+			return;
+		}
+
+		g_hycov_scrolling_follow_focus_overridden = true;
+		hycov_log(LOG, "disabled hyprscrolling follow_focus for overview");
+		return;
+	}
+
+	if (!g_hycov_scrolling_follow_focus_overridden) {
+		return;
+	}
+
+	const auto restoreValue = std::to_string(g_hycov_scrolling_follow_focus_backup);
+	const auto err = g_pConfigManager->parseKeyword("plugin:hyprscrolling:follow_focus", restoreValue);
+	if (!err.empty()) {
+		hycov_log(Log::ERR, "failed to restore hyprscrolling follow_focus to {}: {}", restoreValue, err);
+		return;
+	}
+
+	g_hycov_scrolling_follow_focus_overridden = false;
+	hycov_log(LOG, "restored hyprscrolling follow_focus to {}", g_hycov_scrolling_follow_focus_backup);
 }
 
 void recalculateAllMonitor() {
@@ -445,6 +497,7 @@ void dispatch_enteroverview(std::string arg)
 
 	hycov_log(LOG,"enter overview,sourceLayout:{},scrollingCompat:{}",g_hycov_overview_source_layout,g_hycov_compat_scrolling_active);
 	g_hycov_isOverView = true;
+	setScrollingFollowFocusOverride(true);
 
 	//make all fullscreen window exit fullscreen state
 	for (auto &w : g_pCompositor->getWorkspaces())
@@ -528,6 +581,7 @@ void dispatch_enteroverview(std::string arg)
 void dispatch_leaveoverview(std::string arg)
 { 
 	if(!g_hycov_isOverView) {
+		setScrollingFollowFocusOverride(false);
 		return;
 	}
 
@@ -541,6 +595,7 @@ void dispatch_leaveoverview(std::string arg)
 	g_hycov_isOverView = false;
 	//mark exiting overview mode
 	g_hycov_isOverViewExiting = true;
+	setScrollingFollowFocusOverride(false);
 	
 	//restore workspace name
 	if(auto pWorkspace = g_pCompositor->getWorkspaceByID(workspaceIdBackup))
