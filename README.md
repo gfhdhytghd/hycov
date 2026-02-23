@@ -8,9 +8,8 @@ A Hyprland overview mode plugin, a new tiling WM workflow.
 > All credit for the original plugin goes to **DreamMaoMao** - this fork simply updates it to work with newer Hyprland versions.
 
 > [!WARNING]
-> **Use at your own risk!** Not all original features have been tested with the updated code. 
-> The core functionality (overview toggle, click to select, right-click to close) works, but some config options and advanced features may be broken or behave unexpectedly.
-> Please report issues if you find something that doesn't work.
+> **I won't be updating this repo anymore**.
+> After looking into the recent controversies and seeing clear evidence of bigotry from the creator of Hyprland, I have decided I can no longer support or contribute to this ecosystem.
 
 ### Fork Status
 
