@@ -111,7 +111,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 
 
 	g_hycov_OvGridLayout = std::make_unique<OvGridLayout>();
-	HyprlandAPI::addLayout(PHANDLE, "ovgrid", g_hycov_OvGridLayout.get());
 
 	// Register dispatchers FIRST so they're available even if hooks fail
 	registerDispatchers();

@@ -1,14 +1,110 @@
 #include "dispatchers.hpp"
 #include <hyprland/src/config/ConfigManager.hpp>
+#include <hyprland/src/layout/algorithm/TiledAlgorithm.hpp>
 
 static const std::string overviewWorksapceName = "OVERVIEW";
 static std::string workspaceNameBackup;
 static WORKSPACEID workspaceIdBackup;
 
-static void refreshRuntimeLayoutState() {
-	if (g_pLayoutManager->getCurrentLayout()) {
-		g_hycov_configLayoutName = g_pLayoutManager->getCurrentLayout()->getLayoutName();
+static std::string layoutNameForWorkspace(PHLWORKSPACE pWorkspace) {
+	if (!pWorkspace || !pWorkspace->m_space) {
+		return {};
+	}
+
+	const auto pAlgorithm = pWorkspace->m_space->algorithm();
+	if (!pAlgorithm || !pAlgorithm->tiledAlgo()) {
+		return {};
+	}
+
+	return Layout::Supplementary::algoMatcher()->getNameForTiledAlgo(&typeid(*pAlgorithm->tiledAlgo()));
+}
+
+static void focusWindowCompat(PHLWINDOW pWindow, bool raw = false) {
+	if (!pWindow) {
+		return;
+	}
+
+	if (raw) {
+		Desktop::focusState()->rawWindowFocus(pWindow, Desktop::FOCUS_REASON_OTHER);
+		return;
+	}
+
+	Desktop::focusState()->fullWindowFocus(pWindow, Desktop::FOCUS_REASON_OTHER);
+}
+
+static void restoreWindowFloatingCompat(PHLWINDOW pWindow, bool floating) {
+	if (!pWindow || !pWindow->m_workspace || !pWindow->m_workspace->m_space) {
+		return;
+	}
+
+	auto target = pWindow->layoutTarget();
+	if (target && target->floating() != floating) {
+		pWindow->m_workspace->m_space->toggleTargetFloating(target);
+	}
+
+	pWindow->m_isFloating = floating;
+	pWindow->updateWindowData();
+}
+
+static void restoreWindowGeometryCompat(PHLWINDOW pWindow, const Vector2D& position, const Vector2D& size, bool configureClient) {
+	if (!pWindow) {
+		return;
+	}
+
+	pWindow->m_position = position;
+	pWindow->m_size = size;
+
+	if (const auto target = pWindow->layoutTarget()) {
+		target->setPositionGlobal(CBox{position.x, position.y, size.x, size.y});
+		target->warpPositionSize();
+		target->damageEntire();
 	} else {
+		*pWindow->m_realPosition = position;
+		*pWindow->m_realSize = size;
+		g_pHyprRenderer->damageWindow(pWindow);
+	}
+
+	if (configureClient) {
+		pWindow->sendWindowSize(true);
+	}
+
+	pWindow->updateWindowDecos();
+}
+
+static void restoreWindowPinnedCompat(PHLWINDOW pWindow, bool pinned) {
+	if (!pWindow || pWindow->m_pinned == pinned) {
+		return;
+	}
+
+	pWindow->m_pinned = pinned;
+	pWindow->updateWindowData();
+	g_pHyprRenderer->damageWindow(pWindow);
+}
+
+static void restoreWindowSizeLimitsCompat(PHLWINDOW pWindow, const SOvGridNodeData& node) {
+	if (!pWindow || !node.ovbk_windowHadXDGSizeLimits || !pWindow->m_xdgSurface) {
+		return;
+	}
+
+	const auto xdgSurface = pWindow->m_xdgSurface.lock();
+	if (!xdgSurface || !xdgSurface->m_toplevel) {
+		return;
+	}
+
+	const auto toplevel = xdgSurface->m_toplevel.lock();
+	if (!toplevel) {
+		return;
+	}
+
+	toplevel->m_current.minSize = node.ovbk_xdgMinSizeCurrent;
+	toplevel->m_current.maxSize = node.ovbk_xdgMaxSizeCurrent;
+	toplevel->m_pending.minSize = node.ovbk_xdgMinSizePending;
+	toplevel->m_pending.maxSize = node.ovbk_xdgMaxSizePending;
+}
+
+static void refreshRuntimeLayoutState() {
+	g_hycov_configLayoutName = layoutNameForWorkspace(Desktop::focusState()->monitor()->m_activeWorkspace);
+	if (g_hycov_configLayoutName.empty()) {
 		static const auto *pConfigLayoutName = (Hyprlang::STRING const*)(HyprlandAPI::getConfigValue(PHANDLE, "general:layout")->getDataStaticPtr());
 		if (pConfigLayoutName) {
 			g_hycov_configLayoutName = *pConfigLayoutName;
@@ -17,15 +113,12 @@ static void refreshRuntimeLayoutState() {
 	g_hycov_compat_scrolling_active = (g_hycov_configLayoutName == "scrolling");
 }
 
-// WARNING: This function directly mutates hyprscrolling's config at runtime.
-// If hyprscrolling changes its config key names, this will silently fail.
-// The null checks below guard against hyprscrolling not being loaded.
 static void setScrollingFollowFocusOverride(bool disable) {
 	if (!g_hycov_compat_scrolling_active) {
 		return;
 	}
 
-	const auto pValue = HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprscrolling:follow_focus");
+	const auto pValue = HyprlandAPI::getConfigValue(PHANDLE, "scrolling:follow_focus");
 	if (!pValue) {
 		return;
 	}
@@ -41,14 +134,14 @@ static void setScrollingFollowFocusOverride(bool disable) {
 		}
 
 		g_hycov_scrolling_follow_focus_backup = **pData;
-		const auto err = g_pConfigManager->parseKeyword("plugin:hyprscrolling:follow_focus", "0");
+		const auto err = g_pConfigManager->parseKeyword("scrolling:follow_focus", "0");
 		if (!err.empty()) {
-			hycov_log(Log::ERR, "failed to disable hyprscrolling follow_focus: {}", err);
+			hycov_log(Log::ERR, "failed to disable scrolling follow_focus: {}", err);
 			return;
 		}
 
 		g_hycov_scrolling_follow_focus_overridden = true;
-		hycov_log(LOG, "disabled hyprscrolling follow_focus for overview");
+		hycov_log(LOG, "disabled scrolling follow_focus for overview");
 		return;
 	}
 
@@ -57,9 +150,9 @@ static void setScrollingFollowFocusOverride(bool disable) {
 	}
 
 	const auto restoreValue = std::to_string(g_hycov_scrolling_follow_focus_backup);
-	const auto err = g_pConfigManager->parseKeyword("plugin:hyprscrolling:follow_focus", restoreValue);
+	const auto err = g_pConfigManager->parseKeyword("scrolling:follow_focus", restoreValue);
 	if (!err.empty()) {
-		hycov_log(Log::ERR, "failed to restore hyprscrolling follow_focus to {}: {}", restoreValue, err);
+		hycov_log(Log::ERR, "failed to restore scrolling follow_focus to {}: {}", restoreValue, err);
 		return;
 	}
 
@@ -70,7 +163,11 @@ static void setScrollingFollowFocusOverride(bool disable) {
 void recalculateAllMonitor() {
 	for (auto &m : g_pCompositor->m_monitors) {
 		PHLMONITOR pMonitor = m;
-		g_pLayoutManager->getCurrentLayout()->recalculateMonitor(pMonitor->m_id);
+		if (g_hycov_isOverView) {
+			g_hycov_OvGridLayout->recalculateMonitor(pMonitor->m_id);
+		} else if (g_layoutManager) {
+			g_layoutManager->recalculateMonitor(pMonitor);
+		}
 	}
 }
 
@@ -78,15 +175,10 @@ static bool shouldCheckScrollingConsistency(const std::string& sourceLayout) {
 	if (!g_hycov_compat_scrolling_active || !g_hycov_scrolling_failsafe || sourceLayout != "scrolling") {
 		return false;
 	}
-	auto* layout = g_pLayoutManager->getCurrentLayout();
-	return layout && layout->getLayoutName() == "scrolling";
+	return true;
 }
 
 static bool validateScrollingConsistency() {
-	if (!g_pLayoutManager->getCurrentLayout()) {
-		return true;
-	}
-
 	size_t sampled = 0;
 	size_t missing = 0;
 
@@ -101,7 +193,7 @@ static bool validateScrollingConsistency() {
 		}
 
 		sampled++;
-		if (!g_pLayoutManager->getCurrentLayout()->isWindowTiled(pWindow)) {
+		if (!pWindow->layoutTarget() || pWindow->layoutTarget()->space() != pWindow->m_workspace->m_space || pWindow->layoutTarget()->floating()) {
 			missing++;
 		}
 	}
@@ -111,18 +203,11 @@ static bool validateScrollingConsistency() {
 }
 
 static void recoverScrollingStateInPlace(PHLWINDOW pFocusCandidate) {
-	auto* layout = g_pLayoutManager->getCurrentLayout();
-	if (!layout) {
-		return;
-	}
-
 	hycov_log(LOG, "scrolling consistency recovery begin");
-	layout->onDisable();
-	layout->onEnable();
 	recalculateAllMonitor();
 
 	if (pFocusCandidate && pFocusCandidate->m_isMapped && !pFocusCandidate->isHidden() && !pFocusCandidate->m_fadingOut) {
-		Desktop::focusState()->fullWindowFocus(pFocusCandidate);
+		focusWindowCompat(pFocusCandidate);
 		g_pCompositor->warpCursorTo(pFocusCandidate->middle());
 	}
 
@@ -131,15 +216,7 @@ static void recoverScrollingStateInPlace(PHLWINDOW pFocusCandidate) {
 
 // only change layout,keep data of previous layout
 void switchToLayoutWithoutReleaseData(std::string layout) {
-    for (size_t i = 0; i < g_pLayoutManager->m_layouts.size(); ++i) {
-        if (g_pLayoutManager->m_layouts[i].first == layout) {
-            if (i == (size_t)g_pLayoutManager->m_currentLayoutID)
-                return;
-            g_pLayoutManager->m_currentLayoutID = i;
-            return;
-        }
-    }
-    hycov_log(Log::ERR, "Unknown layout!");
+	(void)layout;
 }
 
 bool want_auto_fullscren(PHLWINDOW pWindow) {
@@ -391,7 +468,7 @@ PHLWINDOW get_circle_next_window (std::string arg) {
 }
 
 void warpcursor_and_focus_to_window(PHLWINDOW pWindow) {
-	Desktop::focusState()->fullWindowFocus(pWindow);
+	focusWindowCompat(pWindow);
 	g_pCompositor->warpCursorTo(pWindow->middle());
 }
 
@@ -508,9 +585,7 @@ void dispatch_enteroverview(std::string arg)
 	}
 
 	//enter overview layout
-	// g_pLayoutManager->switchToLayout("ovgrid");
-	switchToLayoutWithoutReleaseData("ovgrid");
-	g_pLayoutManager->getCurrentLayout()->onEnable();
+	g_hycov_OvGridLayout->onEnable();
 	size_t movedNodeCount = 0;
 	for (const auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData) {
 		if (n.ovbk_movedForOverview) {
@@ -531,10 +606,10 @@ void dispatch_enteroverview(std::string arg)
 		// scrolling layout has an activeWindow callback that can immediately re-apply its geometry.
 		// Use raw focus here to avoid firing activeWindow while entering overview.
 		if (scrollingSourceLayout) {
-			Desktop::focusState()->rawWindowFocus(pActiveWindow);
+			focusWindowCompat(pActiveWindow, true);
 			hycov_log(LOG, "enter overview: use raw focus restore for scrolling source layout");
 		} else {
-			Desktop::focusState()->fullWindowFocus(pActiveWindow); //restore the focus to before active window
+			focusWindowCompat(pActiveWindow); //restore the focus to before active window
 		}
 
 	} else { // when no window is showed in current window,find from other workspace to focus(exclude special workspace)
@@ -544,9 +619,9 @@ void dispatch_enteroverview(std::string arg)
     	    if ( !node || g_pCompositor->isWorkspaceSpecial(node->workspaceID) || pWindow->isHidden() || !pWindow->m_isMapped || pWindow->m_fadingOut || pWindow->isFullscreen())
     	        continue;
 			if (scrollingSourceLayout) {
-				Desktop::focusState()->rawWindowFocus(pWindow);
+				focusWindowCompat(pWindow, true);
 			} else {
-				Desktop::focusState()->fullWindowFocus(pWindow); // find the last window that is in same workspace with the remove window
+				focusWindowCompat(pWindow); // find the last window that is in same workspace with the remove window
 			}
     	}
 
@@ -566,10 +641,6 @@ void dispatch_enteroverview(std::string arg)
 		g_hycov_pSpawnHook->hook();
 	}
 
-	g_hycov_pCKeybindManager_changeGroupActiveHook->hook();
-	g_hycov_pCKeybindManager_toggleGroupHook->hook();
-	g_hycov_pCKeybindManager_moveOutOfGroupHook->hook();
-
 	return;
 }
 
@@ -585,6 +656,7 @@ void dispatch_leaveoverview(std::string arg)
 		pMonitor->setSpecialWorkspace(nullptr);
 	
 	std::string sourceLayout = g_hycov_overview_source_layout.empty() ? g_hycov_configLayoutName : g_hycov_overview_source_layout;
+	const bool scrollingSourceLayout = sourceLayout == "scrolling";
 	
 	hycov_log(LOG,"leave overview,sourceLayout:{},scrollingCompat:{}",sourceLayout,g_hycov_compat_scrolling_active);
 	g_hycov_isOverView = false;
@@ -607,14 +679,9 @@ void dispatch_leaveoverview(std::string arg)
 		g_hycov_pSpawnHook->unhook();
 	}
 
-	g_hycov_pCKeybindManager_changeGroupActiveHook->unhook();
-	g_hycov_pCKeybindManager_toggleGroupHook->unhook();
-	g_hycov_pCKeybindManager_moveOutOfGroupHook->unhook();
-
 	// if no clients, just exit overview, don't restore client's state
 	if (g_hycov_OvGridLayout->m_lOvGridNodesData.empty())
 	{
-		switchToLayoutWithoutReleaseData(sourceLayout);
 		recalculateAllMonitor();
 		g_hycov_OvGridLayout->m_lOvGridNodesData.clear();
 		g_hycov_isOverViewExiting = false;
@@ -633,64 +700,46 @@ void dispatch_leaveoverview(std::string arg)
 	
 	for (auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData)
 	{	
-			if (n.ovbk_windowIsFloating)
+		if (!n.pWindow) {
+			continue;
+		}
+
+		if (!(scrollingSourceLayout && !n.ovbk_windowIsFloating)) {
+			restoreWindowFloatingCompat(n.pWindow, n.ovbk_windowIsFloating);
+		}
+
+		restoreWindowPinnedCompat(n.pWindow, n.ovbk_windowWasPinned);
+		restoreWindowSizeLimitsCompat(n.pWindow, n);
+
+		if (n.ovbk_windowIsFloating)
 		{
-			//make floating client restore it's floating status
-			n.pWindow->m_isFloating = true;
-			g_pLayoutManager->getCurrentLayout()->onWindowCreatedFloating(n.pWindow);
-
 			// make floating client restore it's position and size
-			*n.pWindow->m_realSize = n.ovbk_size;
-			*n.pWindow->m_realPosition = n.ovbk_position;
-
-			auto calcPos = n.ovbk_position;
-			auto calcSize = n.ovbk_size;
-
-			*n.pWindow->m_realSize = calcSize;
-			*n.pWindow->m_realPosition = calcPos;
-
-			n.pWindow->sendWindowSize(true);
+			restoreWindowGeometryCompat(n.pWindow, n.ovbk_position, n.ovbk_size, true);
 
 		} else if(!n.ovbk_windowIsFloating && !n.ovbk_windowIsFullscreen) {
+			if (scrollingSourceLayout) {
+				continue;
+			}
+
 			// make nofloating client restore it's position and size
-			*n.pWindow->m_realSize = n.ovbk_size;
-			*n.pWindow->m_realPosition = n.ovbk_position;
-
-			// auto calcPos = n.ovbk_position;
-			// auto calcSize = n.ovbk_size;
-
-			// n.pWindow->m_vRealSize = calcSize;
-			// n.pWindow->m_vRealPosition = calcPos;
-
-			// some app sometime can't catch window size to restore,don't use dirty data,remove refer data in old layout.
-			if (n.ovbk_size.x == 0 && n.ovbk_size.y == 0 && n.isInOldLayout && !g_hycov_compat_scrolling_active) {
-				g_hycov_OvGridLayout->removeOldLayoutData(n.pWindow);
-				n.isInOldLayout = false;
-			} else {
-				n.pWindow->sendWindowSize(true);	
-			}	
-
-			// restore active window in group
-			if(n.isGroupActive) {
-				n.pWindow->setGroupCurrent(n.pWindow);
-			}	
+			restoreWindowGeometryCompat(n.pWindow, n.ovbk_position, n.ovbk_size, true);
 		}
 	}
 
-	//exit overview layout,go back to old layout
 	PHLWINDOW pActiveWindow = Desktop::focusState()->window();
-	Desktop::focusState()->rawWindowFocus(nullptr);
-	// g_pLayoutManager->switchToLayout(*configLayoutName);
-	// g_pLayoutManager->getCurrentLayout()->onDisable();
-	switchToLayoutWithoutReleaseData(sourceLayout);
+	Desktop::focusState()->resetWindowFocus();
 	recalculateAllMonitor();
 	if(g_hycov_compat_scrolling_active) {
 		for (const auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData) {
 			if (!n.pWindow) {
 				continue;
 			}
-			g_pLayoutManager->getCurrentLayout()->recalculateMonitor(n.ovbk_windowMonitorId);
-			g_pLayoutManager->getCurrentLayout()->recalculateMonitor(n.pWindow->monitorID());
+			if (auto pOrigMonitor = g_pCompositor->getMonitorFromID(n.ovbk_windowMonitorId)) {
+				g_layoutManager->recalculateMonitor(pOrigMonitor);
+			}
+			if (auto pNowMonitor = g_pCompositor->getMonitorFromID(n.pWindow->monitorID())) {
+				g_layoutManager->recalculateMonitor(pNowMonitor);
+			}
 		}
 		recalculateAllMonitor();
 	}
@@ -709,7 +758,7 @@ void dispatch_leaveoverview(std::string arg)
 		if(g_hycov_forece_display_all_in_one_monitor && pActiveWindow->monitorID() != Desktop::focusState()->monitor()->m_id) {
 			warpcursor_and_focus_to_window(pActiveWindow); //restore the focus to before active window.when cross monitor,warpcursor to monitor of current active window is in
 		} else {
-			Desktop::focusState()->fullWindowFocus(pActiveWindow); //restore the focus to before active window
+			focusWindowCompat(pActiveWindow); //restore the focus to before active window
 		}
 
 		if(pActiveWindow->m_isFloating && g_hycov_raise_float_to_top) {
@@ -736,23 +785,6 @@ void dispatch_leaveoverview(std::string arg)
 		}
 	}
 
-	for (auto &n : g_hycov_OvGridLayout->m_lOvGridNodesData)
-	{
-		// if client not in old layout,create tiling of the client
-		if(!n.isInOldLayout)
-		{
-			if (n.pWindow->m_fadingOut || !n.pWindow->m_isMapped || n.pWindow->isHidden()) {
-				continue;
-			}
-			hycov_log(LOG,"create tiling window in old layout,window:{},workspace:{},inoldlayout:{}",n.pWindow,n.workspaceID,n.isInOldLayout);
-			g_pLayoutManager->getCurrentLayout()->onWindowCreatedTiling(n.pWindow);
-		}
-		// restore active window in group
-		if(n.isGroupActive) {
-			n.pWindow->setGroupCurrent(n.pWindow);
-		}	
-	}
-
 	//clean overview layout node date
 	g_hycov_OvGridLayout->m_lOvGridNodesData.clear();
 	g_hycov_overview_source_layout.clear();
@@ -767,13 +799,17 @@ void dispatch_leaveoverview(std::string arg)
 	if (g_hycov_pendingMoveWindow && g_hycov_pendingMoveMonitor) {
 		hycov_log(LOG, "Applying pending move to monitor {}", g_hycov_pendingMoveMonitor->m_id);
 		
-		Desktop::focusState()->fullWindowFocus(g_hycov_pendingMoveWindow);
+		focusWindowCompat(g_hycov_pendingMoveWindow);
 		
 		std::string moveArg = "mon:" + std::to_string(g_hycov_pendingMoveMonitor->m_id);
 		g_pKeybindManager->m_dispatchers["movewindow"](moveArg);
 		
-		g_pLayoutManager->getCurrentLayout()->recalculateMonitor(g_hycov_pendingMoveMonitor->m_id);
-		g_pLayoutManager->getCurrentLayout()->recalculateMonitor(g_hycov_dragStartMonitor);
+		if (g_layoutManager) {
+			g_layoutManager->recalculateMonitor(g_hycov_pendingMoveMonitor);
+			if (auto pStartMonitor = g_pCompositor->getMonitorFromID(g_hycov_dragStartMonitor)) {
+				g_layoutManager->recalculateMonitor(pStartMonitor);
+			}
+		}
 		
 		g_hycov_pendingMoveWindow = nullptr;
 		g_hycov_pendingMoveMonitor = nullptr;

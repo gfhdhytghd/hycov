@@ -16,6 +16,8 @@ A Hyprland overview mode plugin, a new tiling WM workflow.
 | Feature | Status |
 |---------|--------|
 | Hyprland v0.53.0+ | Working |
+| Hyprland v0.54.0 | Working |
+| Built-in `scrolling` layout (Hyprland v0.54.0+) | Working |
 | Overview toggle | Working |
 | Click to select window | Working |
 | Right-click to close | Working |
@@ -45,7 +47,8 @@ Anyone is welcome to fork. If you end up improving the plugin, please let me kno
 
 > [!NOTE]
 > 1. After Hycov is installed, you may need to logout and log back in.
-> 2. This fork targets **Hyprland v0.53.0+**. For older Hyprland versions, use the [original repo](https://github.com/DreamMaoMao/hycov). or another fork if the original repo does not support ur Hyprland version.
+> 2. This fork targets **Hyprland v0.53.0+** and has been updated to build against **Hyprland v0.54.0**.
+> 3. On Hyprland v0.54.0+, the former external `hyprscrolling` plugin is built in as the `scrolling` layout. Hycov now follows the built-in `scrolling:*` config namespace when temporarily overriding `follow_focus` during overview.
 
 ##### Using make (recommended for this fork):
 
@@ -320,4 +323,3 @@ Make sure enable_click_action = 1 is set in your config.
 Make sure enable_gesture = 1 is set and swipe_fingers matches the 
 number of fingers you're using on your touchpad.
 ```
-

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <chrono>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <memory>
 #include <ranges>
@@ -15,15 +16,20 @@
 #define private public
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <hyprland/src/plugins/HookSystem.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
-#include <hyprland/src/managers/LayoutManager.hpp>
+#include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/managers/EventManager.hpp>
-#include <hyprland/src/managers/HookSystemManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/devices/Keyboard.hpp>
 #include <hyprland/src/devices/IPointer.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/layout/LayoutManager.hpp>
+#include <hyprland/src/layout/space/Space.hpp>
+#include <hyprland/src/layout/algorithm/Algorithm.hpp>
+#include <hyprland/src/layout/supplementary/WorkspaceAlgoMatcher.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
+#include <hyprland/src/protocols/XDGShell.hpp>
 #include <hyprutils/string/String.hpp>
 #undef private
 
@@ -71,6 +77,7 @@ inline std::string g_hycov_overview_source_layout;
 inline SP<HOOK_CALLBACK_FN> g_hycov_pActiveWindowGuardCallback;
 inline bool g_hycov_scrolling_follow_focus_overridden = false;
 inline int g_hycov_scrolling_follow_focus_backup = 1;
+inline std::unordered_map<WORKSPACEID, std::string> g_hycov_workspace_layout_backup;
 
 
 inline bool g_hycov_isOverViewExiting;

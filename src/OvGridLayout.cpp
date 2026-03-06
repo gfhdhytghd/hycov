@@ -3,6 +3,89 @@
 #include "OvGridLayout.hpp"
 #include "dispatchers.hpp"
 
+static void forceWindowFloating(PHLWINDOW pWindow, bool floating) {
+    if (!pWindow || !pWindow->m_workspace || !pWindow->m_workspace->m_space) {
+        return;
+    }
+
+    auto target = pWindow->layoutTarget();
+    if (target && target->floating() != floating) {
+        pWindow->m_workspace->m_space->toggleTargetFloating(target);
+    }
+
+    pWindow->m_isFloating = floating;
+    pWindow->updateWindowData();
+}
+
+static void moveWindowToWorkspaceCompat(PHLWINDOW pWindow, PHLWORKSPACE pWorkspace) {
+    if (!pWindow || !pWorkspace) {
+        return;
+    }
+
+    if (pWindow->m_workspace != pWorkspace) {
+        g_pCompositor->moveWindowToWorkspaceSafe(pWindow, pWorkspace);
+    }
+
+    if (auto pMonitor = pWorkspace->m_monitor.lock()) {
+        pWindow->m_monitor = pMonitor;
+    }
+}
+
+static void setWindowPinnedForOverview(PHLWINDOW pWindow, bool pinned) {
+    if (!pWindow) {
+        return;
+    }
+
+    pWindow->m_pinned = pinned;
+    pWindow->updateWindowData();
+    g_pHyprRenderer->damageWindow(pWindow);
+}
+
+static void relaxWindowSizeLimitsForOverview(PHLWINDOW pWindow, SOvGridNodeData* pNode) {
+    if (!pWindow || !pNode || !pWindow->m_xdgSurface) {
+        return;
+    }
+
+    const auto xdgSurface = pWindow->m_xdgSurface.lock();
+    if (!xdgSurface || !xdgSurface->m_toplevel) {
+        return;
+    }
+
+    const auto toplevel = xdgSurface->m_toplevel.lock();
+    if (!toplevel) {
+        return;
+    }
+
+    pNode->ovbk_windowHadXDGSizeLimits = true;
+    pNode->ovbk_xdgMinSizeCurrent = toplevel->m_current.minSize;
+    pNode->ovbk_xdgMaxSizeCurrent = toplevel->m_current.maxSize;
+    pNode->ovbk_xdgMinSizePending = toplevel->m_pending.minSize;
+    pNode->ovbk_xdgMaxSizePending = toplevel->m_pending.maxSize;
+
+    toplevel->m_current.minSize = {1, 1};
+    toplevel->m_current.maxSize = {1337420, 694200};
+    toplevel->m_pending.minSize = {1, 1};
+    toplevel->m_pending.maxSize = {1337420, 694200};
+}
+
+static void placeWindowForOverview(PHLWINDOW pWindow, const Vector2D& position, const Vector2D& size) {
+    if (!pWindow) {
+        return;
+    }
+
+    pWindow->m_position = position;
+    pWindow->m_size = size;
+
+    // Overview is a compositor-side preview. Write the rendered box directly
+    // and do not route through target geometry, otherwise min/max-size clients
+    // such as Electron utility windows keep enforcing their requested size.
+    pWindow->m_realSize->setValueAndWarp(size);
+    pWindow->m_realPosition->setValueAndWarp(position);
+    g_pHyprRenderer->damageWindow(pWindow);
+
+    pWindow->updateWindowDecos();
+}
+
 // find next focus window after remove a window
 PHLWINDOW OvGridLayout::getNextWindowCandidate(PHLWINDOW plastWindow) {
 
@@ -61,19 +144,13 @@ Vector2D OvGridLayout::predictSizeForNewWindowTiled() {
 
 void OvGridLayout::resizeNodeSizePos(SOvGridNodeData *node, int x, int y, int width, int height)
 {   
-    
-    int groupbar_height_fix;
-    if(node->pWindow->m_groupData.pNextWindow.lock()) {
-        groupbar_height_fix = g_hycov_groupBarHeight;
-    } else {
-        groupbar_height_fix = 0;
-    }
+    const int groupbar_height_fix = 0;
     node->size = Vector2D(width, height - g_hycov_height_of_titlebar - groupbar_height_fix);
     node->position = Vector2D(x, y + g_hycov_height_of_titlebar + groupbar_height_fix);
     applyNodeDataToWindow(node);
 }
 
-void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction)
+void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, Math::eDirection direction)
 {
     PHLMONITOR pTargetMonitor;
     if(g_hycov_forece_display_all_in_one_monitor) {
@@ -88,17 +165,6 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
 
     auto pWindowOriWorkspace = pWindow->m_workspace;
 
-    auto oldLayoutRecordNode = getOldLayoutRecordNodeFromWindow(pWindow);
-    if(oldLayoutRecordNode) {
-        pNode->isInOldLayout = true; //client is taken from the old layout
-        m_lSOldLayoutRecordNodeData.remove(*oldLayoutRecordNode);
-    }
-
-    //record the previcous window in group
-    if(pWindow->m_groupData.pNextWindow.lock() && pWindow->getGroupCurrent() == pWindow) {
-        pNode->isGroupActive = true;
-	}
-
     pNode->workspaceID = pWindow->m_workspace->m_id; // encapsulate window objects as node objects to bind more properties
     pNode->pWindow = pWindow;
     pNode->workspaceName = pWindowOriWorkspace->m_name;
@@ -110,6 +176,7 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
     pNode->ovbk_position = pWindow->m_realPosition->goal();
     pNode->ovbk_size = pWindow->m_realSize->goal();
     pNode->ovbk_windowIsFloating = pWindow->m_isFloating;
+    pNode->ovbk_windowWasPinned = pWindow->m_pinned;
     pNode->ovbk_windowIsFullscreen = pWindow->isFullscreen();
     pNode->ovbk_windowWorkspaceName = pWindowOriWorkspace->m_name;
 
@@ -118,13 +185,16 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
     pNode->ovbk_windowIsWithRounding = true;
     pNode->ovbk_windowIsWithShadow = true;
 
+    const bool scrollingSourceLayout =
+        g_hycov_compat_scrolling_active &&
+        (g_hycov_overview_source_layout.empty() ? g_hycov_configLayoutName : g_hycov_overview_source_layout) == "scrolling";
+
 
     //change all client(exclude special workspace) to active worksapce 
-    if ((!g_pCompositor->isWorkspaceSpecial(pNode->workspaceID) || g_hycov_show_special) && pNode->isInOldLayout && (pWindowOriWorkspace->m_id != pActiveWorkspace->m_id || pWindowOriWorkspace->m_name != pActiveWorkspace->m_name) && (!(g_hycov_only_active_workspace || g_hycov_force_display_only_current_workspace) || g_hycov_forece_display_all || g_hycov_forece_display_all_in_one_monitor))    {
-        pWindow->m_workspace = pActiveWorkspace;
-        pNode->workspaceID = pWindow->m_workspace->m_id;
+    if ((!g_pCompositor->isWorkspaceSpecial(pNode->workspaceID) || g_hycov_show_special) && (pWindowOriWorkspace->m_id != pActiveWorkspace->m_id || pWindowOriWorkspace->m_name != pActiveWorkspace->m_name) && (!(g_hycov_only_active_workspace || g_hycov_force_display_only_current_workspace) || g_hycov_forece_display_all || g_hycov_forece_display_all_in_one_monitor)) {
+        moveWindowToWorkspaceCompat(pWindow, pActiveWorkspace);
+        pNode->workspaceID = pActiveWorkspace->m_id;
         pNode->workspaceName = pActiveWorkspace->m_name;
-        pWindow->m_monitor = pTargetMonitor;
         pNode->ovbk_movedForOverview = true;
     }
 
@@ -133,10 +203,17 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
         g_pCompositor->setWindowFullscreenInternal(pWindow, FSMODE_NONE);
     }
 
-    //clean floating status(only apply to old layout window)
-    if (pWindow->m_isFloating && pNode->isInOldLayout) {        
-        pWindow->m_isFloating = false;
-        pWindow->updateWindowData();
+    // Pinned floating windows are rendered in a dedicated "always above" pass.
+    // Disable pinned while in overview so they only render at their preview box.
+    if (pNode->ovbk_windowWasPinned) {
+        setWindowPinnedForOverview(pWindow, false);
+    }
+
+    relaxWindowSizeLimitsForOverview(pWindow, pNode);
+
+    // Keep overview-managed windows detached from the active tiled layout.
+    if (!pWindow->m_isFloating && !scrollingSourceLayout) {
+        forceWindowFloating(pWindow, true);
     }
 
     recalculateMonitor(pWindow->monitorID());    
@@ -144,40 +221,7 @@ void OvGridLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction
 
 
 void OvGridLayout::removeOldLayoutData(PHLWINDOW pWindow) { 
-
-	std::string configLayoutName = g_hycov_overview_source_layout.empty() ? g_hycov_configLayoutName : g_hycov_overview_source_layout;
-    switchToLayoutWithoutReleaseData(configLayoutName);
-    hycov_log(LOG,"remove data of old layout:{}",configLayoutName);
-
-    if(configLayoutName == "dwindle") {
-        // disable render client of old layout
-        g_hycov_pHyprDwindleLayout_recalculateMonitorHook->hook();
-        g_hycov_pHyprDwindleLayout_recalculateWindowHook->hook();
-        g_hycov_pSDwindleNodeData_recalcSizePosRecursiveHook->hook();
-
-        // only remove data,not render anything,becaust still in overview
-        g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
-
-        g_hycov_pSDwindleNodeData_recalcSizePosRecursiveHook->unhook();
-        g_hycov_pHyprDwindleLayout_recalculateWindowHook->unhook();
-        g_hycov_pHyprDwindleLayout_recalculateMonitorHook->unhook();
-    } else if(configLayoutName == "master") {
-        g_hycov_pHyprMasterLayout_recalculateMonitorHook->hook();
-
-        g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
-
-        g_hycov_pHyprMasterLayout_recalculateMonitorHook->unhook();
-    } else if (configLayoutName == "scrolling") {
-        // scrolling keeps its own workspace->window mapping cache.
-        // During overview we only strip old-layout nodes, never invoke dwindle/master hooks here.
-        g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
-    } else {
-        // may be not support other layout
-        hycov_log(Log::ERR,"unknown old layout:{}, trying generic window removal",configLayoutName);
-        g_pLayoutManager->getCurrentLayout()->onWindowRemovedTiling(pWindow);
-    }
-
-    switchToLayoutWithoutReleaseData("ovgrid");
+    hycov_log(LOG, "removeOldLayoutData noop on 0.54 for window:{}", pWindow);
 }
 
 void OvGridLayout::onWindowRemoved(PHLWINDOW pWindow) {
@@ -186,61 +230,10 @@ void OvGridLayout::onWindowRemoved(PHLWINDOW pWindow) {
     if (!pNode)
         return;
 
-    if(pNode->isInOldLayout) { // if client is taken from the old layout
-        removeOldLayoutData(pWindow);
-    }
-
     if (pWindow->isFullscreen())
         g_pCompositor->setWindowFullscreenInternal(pWindow, FSMODE_NONE);
 
-    if (!pWindow->m_groupData.pNextWindow.expired()) {
-        if (pWindow->m_groupData.pNextWindow.lock() == pWindow)
-            pWindow->m_groupData.pNextWindow.reset();
-        else {
-            // find last window and update
-            PHLWINDOW  PWINDOWPREV     = pWindow->getGroupPrevious();
-            const auto WINDOWISVISIBLE = pWindow->getGroupCurrent() == pWindow;
-
-            if (WINDOWISVISIBLE)
-                PWINDOWPREV->setGroupCurrent(pWindow->m_groupData.head ? pWindow->m_groupData.pNextWindow.lock() : PWINDOWPREV);
-
-            PWINDOWPREV->m_groupData.pNextWindow = pWindow->m_groupData.pNextWindow;
-
-            pWindow->m_groupData.pNextWindow.reset();
-
-            if (pWindow->m_groupData.head) {
-                std::swap(PWINDOWPREV->m_groupData.pNextWindow.lock()->m_groupData.head, pWindow->m_groupData.head);
-                std::swap(PWINDOWPREV->m_groupData.pNextWindow.lock()->m_groupData.locked, pWindow->m_groupData.locked);
-            }
-
-            if (pWindow == m_lastTiledWindow.lock())
-                m_lastTiledWindow.reset();
-
-            pWindow->setHidden(false);
-
-            pWindow->updateWindowDecos();
-            PWINDOWPREV->getGroupCurrent()->updateWindowDecos();
-            pWindow->updateDecorationValues();
-
-            // change node bind window in group
-            pNode->pWindow = PWINDOWPREV->getGroupCurrent();
-            pNode->pWindow->m_workspace = Desktop::focusState()->monitor()->m_activeWorkspace;
-            applyNodeDataToWindow(pNode);
-            pNode->isInOldLayout = false;
-            hycov_log(LOG,"change node bind window in group,old:{} new:{}",pWindow,pNode->pWindow);
-            
-            return;
-        }
-    }
-
-    if (pWindow->m_isFloating) {
-        onWindowRemovedFloating(pWindow);
-    } else {
-        onWindowRemovedTiling(pWindow);
-    }
-
-    if (pWindow == m_lastTiledWindow.lock())
-        m_lastTiledWindow.reset();
+    onWindowRemovedTiling(pWindow);
 }
 
 void OvGridLayout::onWindowRemovedTiling(PHLWINDOW pWindow)
@@ -251,18 +244,6 @@ void OvGridLayout::onWindowRemovedTiling(PHLWINDOW pWindow)
 
     if (!pNode)
         return;
-
-    if(pNode->isInOldLayout) { // if client is taken from the old layout
-        removeOldLayoutData(pWindow);
-    }
-
-    // if window is in a group,replace it with other window in same group
-    //     pNode->pWindow->m_pWorkspace = g_pCompositor->getWorkspaceByID(pNode->workspaceID);
-    //     applyNodeDataToWindow(pNode);
-    //     pNode->isInOldLayout = false;
-    //     g_pCompositor->focusWindow(pNode->pWindow);
-    //     return;
-    // }
 
     m_lOvGridNodesData.remove(*pNode);
 
@@ -433,17 +414,9 @@ void OvGridLayout::applyNodeDataToWindow(SOvGridNodeData *pNode)
     // pWindow->m_sSpecialRenderData.border   = true;
     // pWindow->m_sSpecialRenderData.rounding = true;
 
-    pWindow->m_size = pNode->size;
-    pWindow->m_position = pNode->position;
-
-    auto calcPos = pWindow->m_position;
-    auto calcSize = pWindow->m_size;
-
-    *pWindow->m_realSize = calcSize;
-    *pWindow->m_realPosition = calcPos;
-    pWindow->sendWindowSize();
-
-    pWindow->updateWindowDecos();
+    // Overview should visually place windows without asking the client to
+    // reconfigure. This keeps min/max-size constrained windows shrinkable.
+    placeWindowForOverview(pWindow, pNode->position, pNode->size);
 }
 
 void OvGridLayout::recalculateWindow(PHLWINDOW pWindow)
@@ -452,7 +425,7 @@ void OvGridLayout::recalculateWindow(PHLWINDOW pWindow)
 }
 
 
-void OvGridLayout::resizeActiveWindow(const Vector2D &pixResize, eRectCorner corner, PHLWINDOW pWindow)
+void OvGridLayout::resizeActiveWindow(const Vector2D &pixResize, Layout::eRectCorner corner, PHLWINDOW pWindow)
 {
     ; // empty
 }
@@ -460,16 +433,6 @@ void OvGridLayout::resizeActiveWindow(const Vector2D &pixResize, eRectCorner cor
 void OvGridLayout::fullscreenRequestForWindow(PHLWINDOW pWindow, const eFullscreenMode currentMode, const eFullscreenMode effectiveMode)
 {
     ; // empty
-}
-
-std::any OvGridLayout::layoutMessage(SLayoutMessageHeader header, std::string content)
-{
-    return "";
-}
-
-SWindowRenderLayoutHints OvGridLayout::requestRenderHints(PHLWINDOW pWindow)
-{
-    return {};
 }
 
 void OvGridLayout::switchWindows(PHLWINDOW pWindowA, PHLWINDOW pWindowB)
@@ -512,10 +475,17 @@ void OvGridLayout::changeToActivceSourceWorkspace()
     } else {
         pWorksapce = Desktop::focusState()->monitor()->m_activeWorkspace;
     }
-    // pMonitor->changeWorkspace(pWorksapce);
+    if (!pWorksapce) {
+        return;
+    }
+
+    auto pMonitor = g_pCompositor->getMonitorFromID(pWorksapce->monitorID());
+    if (!pMonitor) {
+        return;
+    }
+
     hycov_log(LOG,"changeToWorkspace:{}",pWorksapce->m_id);
-    g_pEventManager->postEvent(SHyprIPCEvent{"workspace", pWorksapce->m_name});
-    EMIT_HOOK_EVENT("workspace", pWorksapce);
+    pMonitor->changeWorkspace(pWorksapce, false, false, false);
 }
 
 std::pair<int, int> OvGridLayout::moveWindowToSourceWorkspace()
@@ -551,8 +521,7 @@ std::pair<int, int> OvGridLayout::moveWindowToSourceWorkspace()
                 continue;
             }
 
-            nd.pWindow->m_monitor = pMonitor;
-            nd.pWindow->m_workspace = pWorkspace;
+            moveWindowToWorkspaceCompat(nd.pWindow, pWorkspace);
             nd.workspaceID = nd.ovbk_windowWorkspaceId;
             nd.workspaceName = nd.ovbk_windowWorkspaceName;
             nd.pWindow->m_position = nd.ovbk_position;
@@ -581,8 +550,6 @@ void OvGridLayout::onEnable()
         if(pWindow->monitorID() != Desktop::focusState()->monitor()->m_id && g_hycov_only_active_monitor && !g_hycov_forece_display_all && !g_hycov_forece_display_all_in_one_monitor)
             continue;
 
-        const auto pNode = &m_lSOldLayoutRecordNodeData.emplace_back();
-        pNode->pWindow = pWindow;
         onWindowCreatedTiling(pWindow);
     }
 }
@@ -591,4 +558,21 @@ void OvGridLayout::onEnable()
 void OvGridLayout::onDisable()
 {
     dispatch_leaveoverview("");
+}
+
+std::vector<PHLWORKSPACE> OvGridLayout::activeOverviewWorkspaces() const {
+    std::vector<PHLWORKSPACE> workspaces;
+
+    for (const auto& node : m_lOvGridNodesData) {
+        if (!node.pWindow || !node.pWindow->m_workspace) {
+            continue;
+        }
+
+        auto it = std::ranges::find(workspaces, node.pWindow->m_workspace);
+        if (it == workspaces.end()) {
+            workspaces.push_back(node.pWindow->m_workspace);
+        }
+    }
+
+    return workspaces;
 }
